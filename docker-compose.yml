@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: neko
+      POSTGRES_PASSWORD: nekomimi
+      POSTGRES_DB: nekowords
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neko -d nekowords"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./api
+    restart: always
+    ports:
+      - "8002:8002"
+    environment:
+      NEKO_DB_USERNAME: neko
+      NEKO_DB_PASSWORD: nekomimi
+      NEKO_DB_HOST: db
+      NEKO_DB_PORT: 5432
+      NEKO_DB_DATABASE: nekowords
+      # LLM config - set your API key here
+      NEKO_LLM_PROVIDER: ${NEKO_LLM_PROVIDER:-openai}
+      NEKO_OPENAI_API_KEY: ${NEKO_OPENAI_API_KEY:-}
+      NEKO_OPENAI_MODEL: ${NEKO_OPENAI_MODEL:-gpt-4o-mini}
+      NEKO_OPENAI_BASE_URL: ${NEKO_OPENAI_BASE_URL:-}
+      # Azure OpenAI (optional)
+      NEKO_AZURE_OPENAI_API_KEY: ${NEKO_AZURE_OPENAI_API_KEY:-}
+      NEKO_AZURE_OPENAI_ENDPOINT: ${NEKO_AZURE_OPENAI_ENDPOINT:-}
+      NEKO_AZURE_DEPLOYMENT_NAME: ${NEKO_AZURE_DEPLOYMENT_NAME:-gpt-4o}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./web
+    restart: always
+    ports:
+      - "3007:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

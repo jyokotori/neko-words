@@ -1,0 +1,25 @@
+# General
+.DS_Store
+.idea
+.vscode
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv
+.env
+api/.venv
+api/.env
+htmlcov/
+
+# Node
+node_modules/
+dist/
+build/
+web/.env
+web/node_modules
+coverage/
+
+# Docker
+docker-compose.override.yml

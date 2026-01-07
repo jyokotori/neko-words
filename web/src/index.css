@@ -1,0 +1,282 @@
+:root {
+  --bg-color: #0d0d12;
+  --text-color: #e0e0e0;
+  --accent-color: #6366f1;
+  --accent-hover: #4f46e5;
+  --card-bg: rgba(255, 255, 255, 0.03);
+  --card-border: rgba(255, 255, 255, 0.1);
+  --success: #10b981;
+  --error: #ef4444;
+  --font-main: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: var(--font-main);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Layout */
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--card-border);
+  background: rgba(13, 13, 18, 0.8);
+  backdrop-filter: blur(10px);
+}
+
+.logo {
+  font-weight: 700;
+  font-size: 1.5rem;
+  background: linear-gradient(to right, #818cf8, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-decoration: none;
+}
+
+.nav-links {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.nav-link {
+  color: #a1a1aa;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-link:hover,
+.nav-link.active {
+  color: #fff;
+}
+
+.main-content {
+  flex: 1;
+  padding: 2rem;
+  overflow-y: auto;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Components */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  backdrop-filter: blur(5px);
+}
+
+.btn {
+  background-color: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.btn:hover {
+  background-color: var(--accent-hover);
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.input {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 0.8rem;
+  font-size: 1rem;
+  color: white;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--accent-color);
+}
+
+.review-card {
+  text-align: center;
+  max-width: 600px;
+  margin: 2rem auto;
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+
+.word-display {
+  font-size: 3rem;
+  font-weight: 800;
+  margin-bottom: 2rem;
+  color: #fff;
+}
+
+.translation-display {
+  font-size: 1.5rem;
+  color: #a5f3fc;
+  margin-top: 1rem;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: all 0.3s;
+}
+
+.translation-display.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.grade-buttons {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+  justify-content: center;
+}
+
+.grade-btn {
+  padding: 0.8rem 1.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.grade-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.grade-btn.again:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.grade-btn.hard:hover {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.grade-btn.good:hover {
+  border-color: #10b981;
+  color: #10b981;
+}
+
+.grade-btn.easy:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+/* Add Word Styling */
+.add-word-container {
+  max-width: 600px;
+  margin: 2rem auto;
+}
+
+.recent-words {
+  margin-top: 2rem;
+}
+
+.word-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid var(--card-border);
+  align-items: center;
+}
+
+.word-item:last-child {
+  border-bottom: none;
+}
+
+.loading-spinner {
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  border-top: 3px solid var(--accent-color);
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+  .navbar {
+    padding: 1rem;
+  }
+
+  .nav-link span,
+  .logo-text {
+    display: none;
+    /* Hide text, keep icons */
+  }
+
+  .nav-links {
+    gap: 1rem;
+  }
+
+  .main-content {
+    padding: 1rem;
+  }
+
+  .review-card {
+    margin: 1rem auto;
+    min-height: auto;
+    padding: 1rem;
+  }
+
+  .word-display {
+    font-size: 2rem;
+  }
+
+  /* 2x2 Grid for Grade Buttons */
+  .grade-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+    width: 100%;
+  }
+
+  .grade-btn {
+    padding: 1rem;
+    font-size: 1.1rem;
+    width: 100%;
+    box-sizing: border-box;
+  }
+}

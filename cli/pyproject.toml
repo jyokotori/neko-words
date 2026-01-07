@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[project]
+name = "nekowords-cli"
+version = "0.1.0"
+description = "Command line interface for Neko Words - add vocabulary from your terminal"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.12.0",
+    "python-dotenv>=1.2.1",
+    "rich>=14.2.0",
+    "socksio>=1.0.0",
+    "typer[all]>=0.21.0",
+]
+
+[project.scripts]
+nekowords = "app.main:app"
