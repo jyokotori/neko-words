@@ -1,12 +1,5 @@
 import typer
 from typing import Optional
-from pathlib import Path
-from dotenv import load_dotenv
-import os
-
-# Load env from .env file if exists
-env_path = Path(__file__).parent.parent / ".env"
-load_dotenv(env_path)
 
 app = typer.Typer(
     name="nekowords",

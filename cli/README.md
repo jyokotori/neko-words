@@ -4,20 +4,7 @@ Command line interface for Neko Words - quickly add vocabulary from your termina
 
 ## Installation
 
-### Option 1: pipx (Recommended)
-
-Install globally with [pipx](https://pipx.pypa.io/):
-
-```bash
-# From source
-cd cli
-pipx install .
-
-# Now you can use it anywhere
-nekowords add hello
-```
-
-### Option 2: uv tool
+### Option 1: uv tool (recommended)
 
 If you use [uv](https://github.com/astral-sh/uv):
 
@@ -29,7 +16,14 @@ uv tool install .
 nekowords add hello
 ```
 
-### Option 3: Development mode
+> **⚠️ Important**: When updating the CLI after code changes, you must **uninstall first**, then reinstall:
+> ```bash
+> uv tool uninstall nekowords-cli
+> uv tool install .
+> ```
+> Using `uv tool install . --force` may not properly update the code!
+
+### Option 2: Development mode
 
 For development or if you prefer not to install globally:
 
@@ -46,18 +40,29 @@ alias nekowords="uv run --project /path/to/neko-words/cli nekowords"
 
 ## Configuration
 
-Create a config file at `~/.config/nekowords/.env` or `cli/.env`:
+The CLI reads configuration from environment variables.
 
-```env
-API_BASE_URL=http://localhost:8002/api/v1
-DEFAULT_LANGUAGE=en
-```
+### Environment variables
 
-Or set environment variables directly:
+Set these in your shell profile (`~/.zprofile`, `~/.bashrc`, etc.):
 
 ```bash
-export API_BASE_URL=http://your-server:8002/api/v1
+export NEKO_API_BASE_URL="http://your-server:8002/api/v1"
+export NEKO_DEFAULT_LANGUAGE="en"  # optional, defaults to "en"
 ```
+
+Then restart your terminal or run `source ~/.zprofile`.
+
+### Local `.env` for development
+
+When using `uv run` for development, you can create a `.env` file in the `cli/` directory:
+
+```env
+NEKO_API_BASE_URL=http://localhost:8002/api/v1
+NEKO_DEFAULT_LANGUAGE=en
+```
+
+**Priority**: Environment variables > `.env` file > default values
 
 ## Usage
 
@@ -66,8 +71,14 @@ export API_BASE_URL=http://your-server:8002/api/v1
 nekowords add hello
 nekowords add "good morning"
 
-# Add with specific language
-nekowords add bonjour --lang fr
+# Add multiple words
+nekowords add hello world goodbye
+
+# Interactive mode
+nekowords add
+
+# Add with specific language tag
+nekowords add bonjour --tag fr
 
 # Start review session
 nekowords review

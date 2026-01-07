@@ -1,29 +1,28 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from functools import lru_cache
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env file from CLI project directory (for local development with `uv run`)
+# override=False ensures environment variables take priority
+_env_path = Path(__file__).parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path, override=False)
 
 
-# Global config path: ~/.config/nekowords/.env
-GLOBAL_ENV_PATH = Path("~/.config/nekowords/.env").expanduser()
+class Settings:
+    """Settings class that reads from environment variables.
+    
+    For production: Set NEKO_API_BASE_URL in your shell profile (~/.zprofile)
+    For development: Create a .env file in the cli/ directory
+    """
+
+    @property
+    def API_BASE_URL(self) -> str:
+        return os.environ.get("NEKO_API_BASE_URL", "http://localhost:8002/api/v1")
+
+    @property
+    def DEFAULT_LANGUAGE(self) -> str:
+        return os.environ.get("NEKO_DEFAULT_LANGUAGE", "en")
 
 
-class Settings(BaseSettings):
-    API_BASE_URL: str = "http://localhost:8002/api/v1"
-    DEFAULT_LANGUAGE: str = "en"
-
-    # Load settings from:
-    # 1. ~/.config/nekowords/.env (global)
-    # 2. .env in current working directory / project (local override)
-    model_config = SettingsConfigDict(
-        env_file=(GLOBAL_ENV_PATH, ".env"),
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-
-@lru_cache
-def get_settings():
-    return Settings()
-
-
-settings = get_settings()
+settings = Settings()
