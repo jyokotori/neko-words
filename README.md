@@ -54,6 +54,33 @@ docker-compose -f docker-compose-external-db.yml up -d
 
 Web UI: `http://localhost:3007`
 
+### Updating Deployment
+
+After pulling new code (`git pull`), you may need to rebuild and restart containers:
+
+```bash
+# Pull latest code
+git pull
+
+# Rebuild and restart (for code changes)
+docker-compose -f docker-compose-external-db.yml up -d --build
+
+# Or if using built-in database:
+docker-compose up -d --build
+```
+
+**Quick Reference:**
+
+| Scenario | Command |
+|----------|---------|
+| Code changed (api/ or web/) | `docker-compose -f <file> up -d --build` |
+| Only .env changed | `docker-compose -f <file> up -d --force-recreate` |
+| Just restart containers | `docker-compose -f <file> restart` |
+| View logs | `docker-compose -f <file> logs -f` |
+| Stop all | `docker-compose -f <file> down` |
+
+> **Note:** Replace `<file>` with `docker-compose-external-db.yml` for external database setup, or omit `-f <file>` entirely for built-in database setup.
+
 ### LLM Configuration
 
 **OpenAI (default, recommended):**
