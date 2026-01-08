@@ -79,6 +79,9 @@ async def enrich_word(word: str, language: str = "en") -> Dict[str, Any]:
         content = response.choices[0].message.content
         if not content:
             raise ValueError("Empty response from LLM")
+        
+        # Log raw LLM output so it is visible in container logs for debugging
+        logger.info("LLM raw response for {}: {}", word, content)
             
         data = json.loads(content)
         logger.debug(f"LLM Response for {word}: {data}")
