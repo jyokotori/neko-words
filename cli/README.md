@@ -69,12 +69,12 @@ NEKO_DEFAULT_LANGUAGE=en
 ```bash
 # Add a word
 nekowords add hello
+
+# Add a phrase (use quotes)
+nekowords add "roll out"
 nekowords add "good morning"
 
-# Add multiple words
-nekowords add hello world goodbye
-
-# Interactive mode
+# Interactive mode (enter words/phrases one at a time)
 nekowords add
 
 # Add with specific language tag
