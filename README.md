@@ -83,18 +83,12 @@ docker-compose up -d --build
 
 ### LLM Configuration
 
-**OpenAI (default, recommended):**
+Any OpenAI-compatible Chat Completions endpoint works — OpenAI, DeepSeek, OpenRouter, Azure (via compat URL), Ollama, vLLM, etc.
+
 ```env
 NEKO_OPENAI_API_KEY=sk-your-api-key
-NEKO_OPENAI_MODEL=gpt-4o-mini
-```
-
-**Azure OpenAI:**
-```env
-NEKO_LLM_PROVIDER=azure
-NEKO_AZURE_OPENAI_API_KEY=your-azure-key
-NEKO_AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
-NEKO_AZURE_DEPLOYMENT_NAME=gpt-4o
+NEKO_OPENAI_MODEL=gpt-5.5
+# NEKO_OPENAI_BASE_URL=https://api.openai.com/v1   # override for non-OpenAI providers
 ```
 
 ---

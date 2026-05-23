@@ -15,15 +15,10 @@ services:
       NEKO_DB_HOST: ${NEKO_DB_HOST}
       NEKO_DB_PORT: ${NEKO_DB_PORT:-5432}
       NEKO_DB_DATABASE: ${NEKO_DB_DATABASE}
-      # LLM config
-      NEKO_LLM_PROVIDER: ${NEKO_LLM_PROVIDER:-openai}
+      # LLM — any OpenAI-compatible Chat Completions endpoint
       NEKO_OPENAI_API_KEY: ${NEKO_OPENAI_API_KEY:-}
-      NEKO_OPENAI_MODEL: ${NEKO_OPENAI_MODEL:-gpt-4o-mini}
+      NEKO_OPENAI_MODEL: ${NEKO_OPENAI_MODEL:-gpt-5.5}
       NEKO_OPENAI_BASE_URL: ${NEKO_OPENAI_BASE_URL:-}
-      # Azure OpenAI (optional)
-      NEKO_AZURE_OPENAI_API_KEY: ${NEKO_AZURE_OPENAI_API_KEY:-}
-      NEKO_AZURE_OPENAI_ENDPOINT: ${NEKO_AZURE_OPENAI_ENDPOINT:-}
-      NEKO_AZURE_DEPLOYMENT_NAME: ${NEKO_AZURE_DEPLOYMENT_NAME:-gpt-4o}
 
   web:
     build: ./web
