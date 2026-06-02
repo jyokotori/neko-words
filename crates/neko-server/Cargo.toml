@@ -1,0 +1,23 @@
+[package]
+name = "neko-server"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lib]
+name = "neko_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "neko-words-server"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+chrono.workspace = true
+neko-core = { path = "../neko-core" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower-http.workspace = true

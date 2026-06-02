@@ -1,0 +1,27 @@
+[workspace]
+members = [
+    "crates/neko-core",
+    "crates/neko-cli",
+    "crates/neko-server",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "any", "sqlite", "postgres", "chrono"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+toml = "0.9"
+tower-http = { version = "0.6", features = ["cors"] }
+uuid = { version = "1", features = ["v4", "serde"] }

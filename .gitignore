@@ -21,5 +21,8 @@ web/.env
 web/node_modules
 coverage/
 
+# Rust
+target/
+
 # Docker
 docker-compose.override.yml

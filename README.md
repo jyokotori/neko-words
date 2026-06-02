@@ -1,156 +1,104 @@
-# Neko Words 🐱
+# Neko Words
 
-A simple, self-hosted vocabulary builder with Spaced Repetition (Anki-like) and LLM-powered enrichment.
+Neko Words is a self-hosted vocabulary builder with spaced repetition and LLM-powered word enrichment.
 
-## 📂 Project Structure
+The main CLI/API implementation is now Rust. The existing `web/` frontend remains in the repository, while Docker/web packaging can be updated separately.
 
-- `api/`: Backend service (Python + FastAPI + SQLModel)
-- `web/`: Frontend application (React + Vite)
-- `cli/`: Command-line interface (Python + Typer)
-- `docs/`: Documentation (Requirements & Architecture)
+## Project Structure
 
-## 🚀 Quick Start (Docker)
+- `crates/neko-core`: shared domain models, review algorithm, LLM client, service layer, and repository trait/SQL implementation.
+- `crates/neko-cli`: `neko-words` command-line application.
+- `crates/neko-server`: Axum HTTP API server.
+- `web/`: React/Vite frontend.
+- `api/` and `cli/`: previous Python implementation kept for reference during migration.
+- `docs/`: requirements and architecture notes.
 
-### Option 1: Built-in Database (Recommended)
+## Configuration
 
-The simplest way to get started - automatically creates a PostgreSQL database:
+CLI and server read/write a single config file:
+
+```text
+~/.neko-words/config.toml
+```
+
+Windows uses:
+
+```text
+%USERPROFILE%\.neko-words\config.toml
+```
+
+Runtime business configuration is not read from `NEKO_*` environment variables. If required config is missing, commands such as `neko-words add`, `neko-words review`, and `neko-words server` enter an interactive initializer.
+
+Example config:
+
+```toml
+mode = "local"
+
+[local]
+db_path = "~/.neko-words/neko-words.sqlite3"
+
+[client_server]
+api_base_url = "http://localhost:8002/api/v1"
+
+[server]
+bind = "127.0.0.1:8002"
+database_url = "postgres://neko:neko@localhost:5432/neko_words"
+
+[llm]
+api_key = "sk-your-api-key"
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.5"
+```
+
+## Build
 
 ```bash
-# 1. Configure environment variables
-cp .env.example .env
-# Edit .env and set your OpenAI API Key
-
-# 2. Start all services
-docker-compose up -d
-
-# 3. Open http://localhost:3007
+cargo build
 ```
 
-### Option 2: External Database
-
-If you already have a PostgreSQL server:
+## CLI Usage
 
 ```bash
-# 1. Configure environment variables
-cp .env.example .env
-# Edit .env with database connection info and OpenAI API Key
+cargo run -p neko-cli -- add hello --tag en
+cargo run -p neko-cli -- add --tag en
+cargo run -p neko-cli -- review --tag en --limit 50
+cargo run -p neko-cli -- mode local
+cargo run -p neko-cli -- mode server
+cargo run -p neko-cli -- config path
+cargo run -p neko-cli -- config get
+cargo run -p neko-cli -- config set llm.model gpt-5.5
+cargo run -p neko-cli -- config init
 ```
 
-```env
-# Database configuration
-NEKO_DB_HOST=your-db-host
-NEKO_DB_PORT=5432
-NEKO_DB_DATABASE=nekowords
-NEKO_DB_USERNAME=your-username
-NEKO_DB_PASSWORD=your-password
-```
+The installed binary name is `neko-words`.
+
+## Server
+
+Start the API with:
 
 ```bash
-# 2. Start services (without database)
-docker-compose -f docker-compose-external-db.yml up -d
-
-# 3. Open http://localhost:3007
+cargo run -p neko-cli -- server
 ```
 
-Web UI: `http://localhost:3007`
-
-### Updating Deployment
-
-After pulling new code (`git pull`), you may need to rebuild and restart containers:
+or:
 
 ```bash
-# Pull latest code
-git pull
-
-# Rebuild and restart (for code changes)
-docker-compose -f docker-compose-external-db.yml up -d --build
-
-# Or if using built-in database:
-docker-compose up -d --build
+cargo run -p neko-server
 ```
 
-**Quick Reference:**
+The HTTP API is mounted under `/api/v1`:
 
-| Scenario | Command |
-|----------|---------|
-| Code changed (api/ or web/) | `docker-compose -f <file> up -d --build` |
-| Only .env changed | `docker-compose -f <file> up -d --force-recreate` |
-| Just restart containers | `docker-compose -f <file> restart` |
-| View logs | `docker-compose -f <file> logs -f` |
-| Stop all | `docker-compose -f <file> down` |
+- `POST /api/v1/words/`
+- `GET /api/v1/reviews/due`
+- `POST /api/v1/reviews/{word_id}/log`
+- `POST /api/v1/reviews/{word_id}/undo`
 
-> **Note:** Replace `<file>` with `docker-compose-external-db.yml` for external database setup, or omit `-f <file>` entirely for built-in database setup.
+Server mode defaults to PostgreSQL via `[server].database_url`. Local CLI mode uses SQLite at `~/.neko-words/neko-words.sqlite3` by default.
 
-### LLM Configuration
-
-Any OpenAI-compatible Chat Completions endpoint works — OpenAI, DeepSeek, OpenRouter, Azure (via compat URL), Ollama, vLLM, etc.
-
-```env
-NEKO_OPENAI_API_KEY=sk-your-api-key
-NEKO_OPENAI_MODEL=gpt-5.5
-# NEKO_OPENAI_BASE_URL=https://api.openai.com/v1   # override for non-OpenAI providers
-```
-
----
-
-## 🛠 Development Setup
-
-For local development without Docker:
-
-### Prerequisites
-
-- **Python 3.12+** (Managed by `uv`)
-- **Node.js 18+**
-- **PostgreSQL 16+**
-- **uv**: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-
-### 1. Database Setup
+## Development Checks
 
 ```bash
-# Option A: Use Docker for database only
-docker-compose up -d db
-
-# Option B: Use external PostgreSQL
-# Create database named `nekowords`
+cargo fmt
+cargo check
+cargo test
 ```
-
-### 2. Backend (`api/`)
-
-```bash
-cd api
-cp .env.example .env
-# Edit .env with your configuration
-
-uv sync
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
-```
-
-API docs: `http://localhost:8002/docs`
-
-### 3. Frontend (`web/`)
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-Frontend: `http://localhost:3007`
-
-### 4. CLI (`cli/`) (In Progress)
-
-```bash
-cd cli
-uv sync
-uv run nekowords --help
-```
-
-## 🛠 Features
-
-- **Add Words**: Automatically brings translation and examples via LLM.
-- **Review**: Spaced repetition algorithm (SM-2 adjusted) to help you remember.
-- **Multi-platform**: Web UI for review, CLI for quick capture.
-
-## 📄 Documentation
-
-See `docs/` for detailed requirements and architecture.
