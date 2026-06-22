@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use neko_core::{
     config::{
-        config_path, AppConfig, ClientServerConfig, LlmConfig, LocalConfig, Mode, ServerConfig,
+        config_path, AppConfig, ClientServerConfig, LlmConfig, Mode, ServerConfig,
     },
     llm::OpenAiCompatibleEnricher,
     models::{AddWordResult, DueReview, ExportData, Grade},
@@ -16,7 +16,7 @@ use neko_core::{
 #[command(name = "neko-words", version, about = "Neko Words vocabulary CLI")]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -83,14 +83,27 @@ enum ConfigCommand {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Add(args) => add(args).await,
-        Commands::Review(args) => review(args).await,
-        Commands::Mode { mode } => set_mode(mode),
-        Commands::Config { command } => config_command(command),
-        Commands::Server => server().await,
-        Commands::Export(args) => export(args).await,
-        Commands::Import(args) => import(args).await,
+        Some(Commands::Add(args)) => add(args).await,
+        Some(Commands::Review(args)) => review(args).await,
+        Some(Commands::Mode { mode }) => set_mode(mode),
+        Some(Commands::Config { command }) => config_command(command),
+        Some(Commands::Server) => server().await,
+        Some(Commands::Export(args)) => export(args).await,
+        Some(Commands::Import(args)) => import(args).await,
+        None => first_run(),
     }
+}
+
+fn first_run() -> Result<()> {
+    let _cfg = ensure_config(false)?;
+    println!();
+    println!("Neko Words is ready.");
+    println!("Config: {}", config_path()?.display());
+    println!();
+    println!("Next:");
+    println!("  neko-words add hello --tag en");
+    println!("  neko-words review --tag en");
+    Ok(())
 }
 
 async fn server() -> Result<()> {
@@ -106,7 +119,7 @@ async fn add(args: AddArgs) -> Result<()> {
             let llm = OpenAiCompatibleEnricher::new(cfg.llm.context("missing [llm] config")?);
             if args.batch || args.word.is_none() {
                 loop {
-                    let word = prompt("word (blank to stop)", None)?;
+                    let word = prompt("Word to add (press Enter to finish)", None)?;
                     if word.trim().is_empty() {
                         break;
                     }
@@ -124,7 +137,7 @@ async fn add(args: AddArgs) -> Result<()> {
             let token = client_server.auth_token;
             if args.batch || args.word.is_none() {
                 loop {
-                    let word = prompt("word (blank to stop)", None)?;
+                    let word = prompt("Word to add (press Enter to finish)", None)?;
                     if word.trim().is_empty() {
                         break;
                     }
@@ -162,7 +175,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
     };
 
     if due.is_empty() {
-        println!("No reviews due.");
+        println!("No words are due for review.");
     }
     Ok(())
 }
@@ -400,9 +413,13 @@ fn init_config(force: bool, server_process: bool) -> Result<AppConfig> {
         load_or_default()?
     };
 
+    println!("Let's set up Neko Words.");
+    println!("Press Enter to accept the default shown in brackets.");
+    println!();
+
     if cfg.mode.is_none() || force || (server_process && !matches!(cfg.mode, Some(Mode::Server))) {
         let default_mode = if server_process { "server" } else { "local" };
-        let mode = prompt("mode [local/server]", Some(default_mode))?;
+        let mode = prompt("Storage mode (local/server)", Some(default_mode))?;
         cfg.mode = Some(if mode.trim().eq_ignore_ascii_case("server") {
             Mode::Server
         } else {
@@ -412,15 +429,7 @@ fn init_config(force: bool, server_process: bool) -> Result<AppConfig> {
 
     match cfg.mode.clone().unwrap_or(Mode::Local) {
         Mode::Local => {
-            cfg.local = Some(LocalConfig {
-                db_path: prompt(
-                    "SQLite path",
-                    cfg.local
-                        .as_ref()
-                        .map(|v| v.db_path.as_str())
-                        .or(Some("~/.neko-words/neko-words.sqlite3")),
-                )?,
-            });
+            cfg.local = Some(cfg.local.clone().unwrap_or_default());
             cfg.llm = Some(prompt_llm(cfg.llm.as_ref())?);
         }
         Mode::Server => {
@@ -464,15 +473,15 @@ fn init_config(force: bool, server_process: bool) -> Result<AppConfig> {
 
 fn prompt_llm(existing: Option<&LlmConfig>) -> Result<LlmConfig> {
     Ok(LlmConfig {
-        api_key: prompt("LLM API key", existing.map(|v| v.api_key.as_str()))?,
+        api_key: prompt_required("OpenAI API key", existing.map(|v| v.api_key.as_str()))?,
         base_url: prompt(
-            "LLM base URL",
+            "OpenAI-compatible API base URL",
             existing
                 .map(|v| v.base_url.as_str())
                 .or(Some("https://api.openai.com/v1")),
         )?,
         model: prompt(
-            "LLM model",
+            "Model name",
             existing.map(|v| v.model.as_str()).or(Some("gpt-5.5")),
         )?,
     })
@@ -516,6 +525,31 @@ fn prompt(label: &str, default: Option<&str>) -> Result<String> {
     } else {
         trimmed.to_string()
     })
+}
+
+fn prompt_required(label: &str, default: Option<&str>) -> Result<String> {
+    loop {
+        match default {
+            Some(default) if !default.is_empty() => print!("{label} [{default}]: "),
+            _ => print!("{label}: "),
+        }
+        io::stdout().flush()?;
+        let mut input = String::new();
+        let bytes_read = io::stdin().read_line(&mut input)?;
+        if bytes_read == 0 {
+            anyhow::bail!("{label} is required");
+        }
+        let trimmed = input.trim();
+        let value = if trimmed.is_empty() {
+            default.unwrap_or_default().to_string()
+        } else {
+            trimmed.to_string()
+        };
+        if !value.trim().is_empty() {
+            return Ok(value);
+        }
+        println!("{label} is required.");
+    }
 }
 
 fn prompt_grade() -> Result<Grade> {
