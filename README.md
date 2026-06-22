@@ -60,6 +60,7 @@ cargo build
 ## CLI Usage
 
 ```bash
+cargo run -p neko-cli -- config init --api-key sk-your-api-key
 cargo run -p neko-cli -- add hello --tag en
 cargo run -p neko-cli -- add --tag en
 cargo run -p neko-cli -- review --tag en --limit 50
@@ -67,7 +68,6 @@ cargo run -p neko-cli -- mode local
 cargo run -p neko-cli -- mode server
 cargo run -p neko-cli -- config path
 cargo run -p neko-cli -- config get
-cargo run -p neko-cli -- config set llm.model gpt-5.5
 cargo run -p neko-cli -- config init
 cargo run -p neko-cli -- export --out backup.json
 cargo run -p neko-cli -- import backup.json

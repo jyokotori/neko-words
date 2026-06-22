@@ -28,24 +28,25 @@ neko-words --version
 
 ## First Run
 
-Run the command once to create the local config:
+Initialize local config in one command:
 
 ```bash
-neko-words
+neko-words config init --api-key "$OPENAI_API_KEY"
 ```
 
-The config file is:
+Optional overrides:
+
+```bash
+neko-words config init --api-key "$OPENAI_API_KEY" --base-url "https://api.openai.com/v1" --model "gpt-5.5"
+```
+
+If the user does not provide a custom base URL or model, omit those flags and let the CLI use defaults.
+
+The config file is written to:
 
 ```text
 ~/.neko-words/config.toml
 ```
-
-For normal local use:
-
-- Choose `local` when asked for storage mode.
-- Enter an OpenAI API key when prompted.
-- Press Enter for the default OpenAI-compatible API base URL unless the user has a custom one.
-- Press Enter for the default model unless the user specifies another model.
 
 Do not ask users for a SQLite path during normal local setup. Local data uses:
 
@@ -94,6 +95,12 @@ easy
 
 ## Config
 
+Initialize or update local config:
+
+```bash
+neko-words config init --api-key "$OPENAI_API_KEY"
+```
+
 Print the config path:
 
 ```bash
@@ -110,12 +117,6 @@ Print a single config value:
 
 ```bash
 neko-words config get llm.model
-```
-
-Set a config value:
-
-```bash
-neko-words config set llm.model gpt-5.5
 ```
 
 Re-run interactive setup:

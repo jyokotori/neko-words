@@ -76,7 +76,20 @@ enum ConfigCommand {
     Get { key: Option<String> },
     Set { key: String, value: String },
     Path,
-    Init,
+    Init(InitConfigArgs),
+}
+
+#[derive(Args)]
+struct InitConfigArgs {
+    /// Initialize local mode with this OpenAI API key without prompting
+    #[arg(long)]
+    api_key: Option<String>,
+    /// OpenAI-compatible API base URL
+    #[arg(long)]
+    base_url: Option<String>,
+    /// Model name
+    #[arg(long)]
+    model: Option<String>,
 }
 
 #[tokio::main]
@@ -378,13 +391,54 @@ fn config_command(command: ConfigCommand) -> Result<()> {
             println!("{}", path.display());
         }
         ConfigCommand::Path => println!("{}", config_path()?.display()),
-        ConfigCommand::Init => {
-            let cfg = init_config(true, false)?;
+        ConfigCommand::Init(args) => {
+            let cfg = if args.has_values() {
+                init_config_from_args(args)?
+            } else {
+                init_config(true, false)?
+            };
             cfg.save(&config_path()?)?;
             println!("{}", config_path()?.display());
         }
     }
     Ok(())
+}
+
+impl InitConfigArgs {
+    fn has_values(&self) -> bool {
+        self.api_key.is_some() || self.base_url.is_some() || self.model.is_some()
+    }
+}
+
+fn init_config_from_args(args: InitConfigArgs) -> Result<AppConfig> {
+    let mut cfg = load_or_default()?;
+    let existing_llm = cfg.llm.unwrap_or_default();
+    let defaults = LlmConfig::default();
+    let api_key = args.api_key.unwrap_or(existing_llm.api_key);
+    if api_key.trim().is_empty() {
+        anyhow::bail!("--api-key is required when no API key is already configured");
+    }
+
+    cfg.mode = Some(Mode::Local);
+    cfg.local = Some(cfg.local.unwrap_or_default());
+    cfg.llm = Some(LlmConfig {
+        api_key,
+        base_url: args
+            .base_url
+            .unwrap_or_else(|| non_empty_or(existing_llm.base_url, defaults.base_url)),
+        model: args
+            .model
+            .unwrap_or_else(|| non_empty_or(existing_llm.model, defaults.model)),
+    });
+    Ok(cfg)
+}
+
+fn non_empty_or(value: String, fallback: String) -> String {
+    if value.trim().is_empty() {
+        fallback
+    } else {
+        value
+    }
 }
 
 fn ensure_config(server_process: bool) -> Result<AppConfig> {
