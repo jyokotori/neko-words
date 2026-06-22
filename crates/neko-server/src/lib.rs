@@ -2,8 +2,9 @@ use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     http::StatusCode,
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -11,8 +12,8 @@ use axum::{
 use neko_core::{
     config::{config_path, AppConfig, Mode},
     llm::OpenAiCompatibleEnricher,
-    models::{AddWordResult, DueReview, Grade, Review},
-    repository::{SqlxRepository, WordRepository},
+    models::{AddWordResult, DueReview, ExportData, Grade, Review},
+    repository::{SqliteRepository, WordRepository},
     service,
 };
 use serde::Deserialize;
@@ -20,8 +21,9 @@ use tower_http::cors::CorsLayer;
 
 #[derive(Clone)]
 struct AppState {
-    repo: SqlxRepository,
+    repo: SqliteRepository,
     llm: OpenAiCompatibleEnricher,
+    auth_token: Option<String>,
 }
 
 #[derive(Debug)]
@@ -82,17 +84,25 @@ pub async fn run(cfg: AppConfig) -> Result<()> {
     if !matches!(cfg.mode, Some(Mode::Server)) {
         anyhow::bail!("server command requires mode = \"server\" in config.toml");
     }
+    let db_url = cfg.server_db_url()?;
     let server = cfg.server.context("missing [server] config")?;
     let llm = cfg.llm.context("missing [llm] config")?;
     if llm.api_key.is_empty() || llm.base_url.is_empty() || llm.model.is_empty() {
         anyhow::bail!("server requires llm.api_key, llm.base_url, and llm.model");
     }
-    let repo = SqlxRepository::connect(&server.database_url).await?;
+    let repo = SqliteRepository::connect(&db_url).await?;
     repo.migrate().await?;
 
+    let auth_token = server.auth_token.filter(|t| !t.is_empty());
+    if auth_token.is_none() {
+        eprintln!(
+            "warning: [server].auth_token is not set; the API (including /export and /import) is unauthenticated"
+        );
+    }
     let state = AppState {
         repo,
         llm: OpenAiCompatibleEnricher::new(llm),
+        auth_token,
     };
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(&server.bind)
@@ -105,18 +115,39 @@ pub async fn run(cfg: AppConfig) -> Result<()> {
 }
 
 fn router(state: AppState) -> Router {
+    let api = Router::new()
+        .route("/words/", post(add_word))
+        .route("/reviews/due", get(due_reviews))
+        .route("/reviews/{word_id}/log", post(log_review))
+        .route("/reviews/{word_id}/undo", post(undo_review))
+        .route("/export", get(export))
+        .route("/import", post(import))
+        .layer(middleware::from_fn_with_state(state.clone(), auth))
+        .with_state(state);
     Router::new()
         .route("/", get(root))
-        .nest(
-            "/api/v1",
-            Router::new()
-                .route("/words/", post(add_word))
-                .route("/reviews/due", get(due_reviews))
-                .route("/reviews/{word_id}/log", post(log_review))
-                .route("/reviews/{word_id}/undo", post(undo_review)),
-        )
+        .nest("/api/v1", api)
         .layer(CorsLayer::permissive())
-        .with_state(state)
+}
+
+async fn auth(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let Some(expected) = state.auth_token.as_deref() else {
+        return next.run(request).await;
+    };
+    let provided = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    if provided == Some(expected) {
+        next.run(request).await
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "detail": "missing or invalid authorization token" })),
+        )
+            .into_response()
+    }
 }
 
 async fn root() -> Json<serde_json::Value> {
@@ -160,6 +191,22 @@ async fn undo_review(
     Ok(Json(serde_json::json!({
         "status": "ok",
         "undone_grade": grade
+    })))
+}
+
+async fn export(State(state): State<AppState>) -> Result<Json<ExportData>, ApiError> {
+    Ok(Json(state.repo.export_all().await?))
+}
+
+async fn import(
+    State(state): State<AppState>,
+    Json(data): Json<ExportData>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state.repo.import_all(&data).await?;
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "words": data.words.len(),
+        "reviews": data.reviews.len(),
     })))
 }
 

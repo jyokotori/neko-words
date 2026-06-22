@@ -64,7 +64,7 @@ mod tests {
     use crate::{
         llm::{EnrichedWord, WordEnricher},
         models::Example,
-        repository::SqlxRepository,
+        repository::SqliteRepository,
     };
     use anyhow::Result;
     use async_trait::async_trait;
@@ -88,7 +88,7 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_raw_word_is_not_inserted_again() {
-        let repo = SqlxRepository::connect("sqlite::memory:").await.unwrap();
+        let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
         repo.migrate().await.unwrap();
 
         let first = add_word(&repo, &FakeEnricher, "Test", "en").await.unwrap();
@@ -101,7 +101,7 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_after_llm_lemma_is_not_inserted_again() {
-        let repo = SqlxRepository::connect("sqlite::memory:").await.unwrap();
+        let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
         repo.migrate().await.unwrap();
 
         let first = add_word(&repo, &FakeEnricher, "child", "en").await.unwrap();

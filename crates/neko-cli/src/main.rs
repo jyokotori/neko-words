@@ -7,8 +7,8 @@ use neko_core::{
         config_path, AppConfig, ClientServerConfig, LlmConfig, LocalConfig, Mode, ServerConfig,
     },
     llm::OpenAiCompatibleEnricher,
-    models::{AddWordResult, DueReview, Grade},
-    repository::{SqlxRepository, WordRepository},
+    models::{AddWordResult, DueReview, ExportData, Grade},
+    repository::{SqliteRepository, WordRepository},
     service,
 };
 
@@ -31,6 +31,21 @@ enum Commands {
         command: ConfigCommand,
     },
     Server,
+    Export(ExportArgs),
+    Import(ImportArgs),
+}
+
+#[derive(Args)]
+struct ExportArgs {
+    /// Write JSON to this file instead of stdout
+    #[arg(long)]
+    out: Option<String>,
+}
+
+#[derive(Args)]
+struct ImportArgs {
+    /// Path to a JSON file produced by `export`
+    file: String,
 }
 
 #[derive(Args)]
@@ -73,6 +88,8 @@ async fn main() -> Result<()> {
         Commands::Mode { mode } => set_mode(mode),
         Commands::Config { command } => config_command(command),
         Commands::Server => server().await,
+        Commands::Export(args) => export(args).await,
+        Commands::Import(args) => import(args).await,
     }
 }
 
@@ -100,20 +117,23 @@ async fn add(args: AddArgs) -> Result<()> {
             }
         }
         Mode::Server => {
-            let api = cfg
+            let client_server = cfg
                 .client_server
-                .context("missing [client_server] config")?
-                .api_base_url;
+                .context("missing [client_server] config")?;
+            let api = client_server.api_base_url;
+            let token = client_server.auth_token;
             if args.batch || args.word.is_none() {
                 loop {
                     let word = prompt("word (blank to stop)", None)?;
                     if word.trim().is_empty() {
                         break;
                     }
-                    print_add_result(add_word_http(&api, &word, &args.tag).await?);
+                    print_add_result(
+                        add_word_http(&api, token.as_deref(), &word, &args.tag).await?,
+                    );
                 }
             } else if let Some(word) = args.word {
-                print_add_result(add_word_http(&api, &word, &args.tag).await?);
+                print_add_result(add_word_http(&api, token.as_deref(), &word, &args.tag).await?);
             }
         }
     }
@@ -128,11 +148,16 @@ async fn review(args: ReviewArgs) -> Result<()> {
             review_local(&repo, &args.tag, args.limit).await?
         }
         Mode::Server => {
-            let api = cfg
+            let client_server = cfg
                 .client_server
-                .context("missing [client_server] config")?
-                .api_base_url;
-            review_http(&api, &args.tag, args.limit).await?
+                .context("missing [client_server] config")?;
+            review_http(
+                &client_server.api_base_url,
+                client_server.auth_token.as_deref(),
+                &args.tag,
+                args.limit,
+            )
+            .await?
         }
     };
 
@@ -142,7 +167,11 @@ async fn review(args: ReviewArgs) -> Result<()> {
     Ok(())
 }
 
-async fn review_local(repo: &SqlxRepository, language: &str, limit: i64) -> Result<Vec<DueReview>> {
+async fn review_local(
+    repo: &SqliteRepository,
+    language: &str,
+    limit: i64,
+) -> Result<Vec<DueReview>> {
     let due = repo.due_reviews(language, limit).await?;
     for item in &due {
         print_due(item);
@@ -152,49 +181,155 @@ async fn review_local(repo: &SqlxRepository, language: &str, limit: i64) -> Resu
     Ok(due)
 }
 
-async fn review_http(api: &str, language: &str, limit: i64) -> Result<Vec<DueReview>> {
+async fn review_http(
+    api: &str,
+    token: Option<&str>,
+    language: &str,
+    limit: i64,
+) -> Result<Vec<DueReview>> {
     let client = reqwest::Client::new();
-    let due: Vec<DueReview> = client
-        .get(format!("{}/reviews/due", api.trim_end_matches('/')))
-        .query(&[("language", language), ("limit", &limit.to_string())])
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let due: Vec<DueReview> = bearer(
+        client
+            .get(format!("{}/reviews/due", api.trim_end_matches('/')))
+            .query(&[("language", language), ("limit", &limit.to_string())]),
+        token,
+    )
+    .send()
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
     for item in &due {
         print_due(item);
         let grade = prompt_grade()?;
-        client
-            .post(format!(
+        bearer(
+            client.post(format!(
                 "{}/reviews/{}/log",
                 api.trim_end_matches('/'),
                 item.word.id
-            ))
-            .json(&serde_json::json!({ "grade": grade }))
-            .send()
-            .await?
-            .error_for_status()?;
+            )),
+            token,
+        )
+        .json(&serde_json::json!({ "grade": grade }))
+        .send()
+        .await?
+        .error_for_status()?;
     }
     Ok(due)
 }
 
-async fn local_repo(cfg: &AppConfig) -> Result<SqlxRepository> {
-    let repo = SqlxRepository::connect(&cfg.local_db_url()?).await?;
+async fn local_repo(cfg: &AppConfig) -> Result<SqliteRepository> {
+    let repo = SqliteRepository::connect(&cfg.local_db_url()?).await?;
     repo.migrate().await?;
     Ok(repo)
 }
 
-async fn add_word_http(api: &str, word: &str, language: &str) -> Result<AddWordResult> {
-    let result = reqwest::Client::new()
-        .post(format!("{}/words/", api.trim_end_matches('/')))
-        .json(&serde_json::json!({ "word": word, "language": language }))
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+async fn export(args: ExportArgs) -> Result<()> {
+    let cfg = ensure_config(false)?;
+    let data = match cfg.mode.clone().context("missing mode")? {
+        Mode::Local => local_repo(&cfg).await?.export_all().await?,
+        Mode::Server => {
+            let client_server = cfg
+                .client_server
+                .context("missing [client_server] config")?;
+            export_http(
+                &client_server.api_base_url,
+                client_server.auth_token.as_deref(),
+            )
+            .await?
+        }
+    };
+    let json = serde_json::to_string_pretty(&data)?;
+    match args.out {
+        Some(path) => {
+            std::fs::write(&path, json).with_context(|| format!("failed to write {path}"))?;
+            println!(
+                "exported {} words, {} reviews -> {path}",
+                data.words.len(),
+                data.reviews.len()
+            );
+        }
+        None => println!("{json}"),
+    }
+    Ok(())
+}
+
+async fn import(args: ImportArgs) -> Result<()> {
+    let cfg = ensure_config(false)?;
+    let text = std::fs::read_to_string(&args.file)
+        .with_context(|| format!("failed to read {}", args.file))?;
+    let data: ExportData = serde_json::from_str(&text).context("failed to parse export JSON")?;
+    match cfg.mode.clone().context("missing mode")? {
+        Mode::Local => local_repo(&cfg).await?.import_all(&data).await?,
+        Mode::Server => {
+            let client_server = cfg
+                .client_server
+                .context("missing [client_server] config")?;
+            import_http(
+                &client_server.api_base_url,
+                client_server.auth_token.as_deref(),
+                &data,
+            )
+            .await?;
+        }
+    }
+    println!(
+        "imported {} words, {} reviews",
+        data.words.len(),
+        data.reviews.len()
+    );
+    Ok(())
+}
+
+async fn export_http(api: &str, token: Option<&str>) -> Result<ExportData> {
+    let data = bearer(
+        reqwest::Client::new().get(format!("{}/export", api.trim_end_matches('/'))),
+        token,
+    )
+    .send()
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
+    Ok(data)
+}
+
+async fn import_http(api: &str, token: Option<&str>, data: &ExportData) -> Result<()> {
+    bearer(
+        reqwest::Client::new().post(format!("{}/import", api.trim_end_matches('/'))),
+        token,
+    )
+    .json(data)
+    .send()
+    .await?
+    .error_for_status()?;
+    Ok(())
+}
+
+async fn add_word_http(
+    api: &str,
+    token: Option<&str>,
+    word: &str,
+    language: &str,
+) -> Result<AddWordResult> {
+    let result = bearer(
+        reqwest::Client::new().post(format!("{}/words/", api.trim_end_matches('/'))),
+        token,
+    )
+    .json(&serde_json::json!({ "word": word, "language": language }))
+    .send()
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
     Ok(result)
+}
+
+fn bearer(builder: reqwest::RequestBuilder, token: Option<&str>) -> reqwest::RequestBuilder {
+    match token.filter(|t| !t.is_empty()) {
+        Some(token) => builder.bearer_auth(token),
+        None => builder,
+    }
 }
 
 fn set_mode(mode: ModeArg) -> Result<()> {
@@ -297,6 +432,10 @@ fn init_config(force: bool, server_process: bool) -> Result<AppConfig> {
                         .map(|v| v.api_base_url.as_str())
                         .or(Some("http://localhost:8002/api/v1")),
                 )?,
+                auth_token: cfg
+                    .client_server
+                    .as_ref()
+                    .and_then(|v| v.auth_token.clone()),
             });
             if server_process || force {
                 cfg.server = Some(ServerConfig {
@@ -307,13 +446,14 @@ fn init_config(force: bool, server_process: bool) -> Result<AppConfig> {
                             .map(|v| v.bind.as_str())
                             .or(Some("127.0.0.1:8002")),
                     )?,
-                    database_url: prompt(
-                        "PostgreSQL database URL",
+                    db_path: prompt(
+                        "server SQLite path",
                         cfg.server
                             .as_ref()
-                            .map(|v| v.database_url.as_str())
-                            .or(Some("postgres://neko:neko@localhost:5432/neko_words")),
+                            .map(|v| v.db_path.as_str())
+                            .or(Some("~/.neko-words/neko-words.sqlite3")),
                     )?,
+                    auth_token: cfg.server.as_ref().and_then(|v| v.auth_token.clone()),
                 });
                 cfg.llm = Some(prompt_llm(cfg.llm.as_ref())?);
             }
@@ -349,7 +489,7 @@ fn has_required_config(cfg: &AppConfig, server_process: bool) -> bool {
         Some(Mode::Server) if server_process => {
             cfg.server
                 .as_ref()
-                .is_some_and(|v| !v.bind.is_empty() && !v.database_url.is_empty())
+                .is_some_and(|v| !v.bind.is_empty() && !v.db_path.is_empty())
                 && cfg.llm.as_ref().is_some_and(|v| {
                     !v.api_key.is_empty() && !v.base_url.is_empty() && !v.model.is_empty()
                 })

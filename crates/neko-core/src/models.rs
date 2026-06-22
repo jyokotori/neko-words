@@ -48,6 +48,15 @@ pub struct AddWordResult {
     pub duplicate: bool,
 }
 
+/// Schema-agnostic intermediate format for manual migration between backends
+/// (SQLite local mode <-> Postgres server mode). Serialized to/from JSON.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct ExportData {
+    pub version: u32,
+    pub words: Vec<Word>,
+    pub reviews: Vec<Review>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Grade {

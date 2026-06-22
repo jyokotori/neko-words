@@ -1,94 +1,85 @@
 # 架构文档: Neko Words
 
-## 1. 项目结构 (Directory Structure)
-- `docs/`: 文档 (Requirement, Architecture)
-- `api/`: 后端服务 (Python + FastAPI + UV)
-- `web/`: 前端应用 (Web)
-- `cli/`: 命令行工具 (Python + Typer + UV)
+## 1. 项目结构
 
-## 2. 系统架构图
+- `crates/neko-core`: 领域模型、复习算法、LLM 客户端、服务层、SQLite 仓储。
+- `crates/neko-cli`: 命令行工具。
+- `crates/neko-server`: Rust/Axum HTTP API。
+- `web/`: React/Vite 前端。
+- `docs/`: 需求和架构文档。
+
+## 2. 系统架构
 
 ```mermaid
 graph TD
     User[用户]
-    CLI[CLI 工具 (api/cli)]
-    Web[Web 前端 (web)]
-    Backend[Python 后端 API (api)]
-    LLM[LLM 服务 (OpenAI/DeepSeek)]
-    DB[(PostgreSQL 数据库)]
+    CLI[Rust CLI]
+    Web[Web 前端]
+    Server[Rust API Server]
+    LLM[LLM 服务]
+    DB[(SQLite 文件)]
+    JSON[JSON 备份文件]
 
-    User -->|命令行添加/复习| CLI
+    User -->|本地添加/复习| CLI
     User -->|浏览器复习| Web
-    CLI -->|HTTP| Backend
-    Web -->|HTTP| Backend
-    Backend -->|Prompt| LLM
-    Backend -->|SQL| DB
+    CLI -->|local mode| DB
+    CLI -->|server mode HTTP| Server
+    Web -->|HTTP| Server
+    Server -->|SQL| DB
+    CLI -->|手动 export/import| JSON
+    Server -->|手动 export/import| JSON
+    CLI -->|Prompt| LLM
+    Server -->|Prompt| LLM
 ```
 
-## 3. 组件 (Components)
+## 3. 数据库
 
-### 3.1 数据库 (PostgreSQL)
-- **Words 表**:
-    - `id`: UUID (PK)
-    - `word`: String (Unique constraint on word+language)
-    - `language`: String (default 'en', support 'jp', etc.)
-    - `translation`: String (Main translation)
-    - `examples`: JSONB (List of objects: `[{ "sentence": "...", "translation": "..." }]`)
-    - `created_at`: Timestamp
-- **Reviews 表**:
-    - `word_id`: FK -> Words.id
-    - `next_review_at`: Timestamp
-    - `last_reviewed_at`: Timestamp
-    - `interval`: Integer (Days)
-    - `ease_factor`: Float (Default 2.5)
-    - `streak`: Integer
-    - `history`: JSONB (Log of past reviews)
+SQLite 是唯一运行时数据库。默认路径：
 
-### 3.2 后端 (api/)
-- **技术栈**: Python 3.12+, FastAPI, SQLAlchemy/SQLModel (Async), UV for dependency management.
-- **职责**:
-    - RESTful API.
-    - LLM 交互 (获取 JSON 结构化数据).
-    - Spaced Repetition 算法 (SM-2 implementation).
+```text
+~/.neko-words/neko-words.sqlite3
+```
 
-### 3.3 CLI 工具 (cli/)
-- **技术栈**: Python 3.12+, Typer, UV.
-- **特色功能**:
-    - **Add (交互模式)**: `nekowords add` -> REPL loop. 支持批量粘贴 (空格分隔).
-    - **Review ("摸鱼"模式)**: `nekowords review`
-        - 界面极简，纯文本。
-        - **流程**:
-            1. 显示单词 -> (按空格)
-            2. 显示第一个例句 (提示) -> (按空格)
-            3. 显示释义 + 例句翻译 + 完整信息 -> (按空格) 默认评分 (Good)
-        - **快捷键**:
-            - `Space`: 下一步 / 默认评分 (Good)
-            - `1`, `2`, `3`, `4`: 评分 (Again, Hard, Good, Easy) -> 自动跳下一词
-            - `Enter`: 跳过当前单词
-            - `Ctrl+Z`: 撤销上一个评分
-            - `Ctrl+C`: 退出
+### `words`
 
-### 3.4 前端 (web/)
-- **技术栈**: React, Vite, TailwindCSS.
-- **特色功能**:
-    - **Review Mode**:
-        - 支持 TTS (Text-to-Speech) 朗读单词和例句。
-        - 三阶段显示 (单词 -> 提示 -> 答案).
-        - 快捷键支持 (同 CLI).
+- `id`: TEXT, UUID 字符串，主键。
+- `word`: TEXT。
+- `language`: TEXT。
+- `translation`: TEXT。
+- `examples`: TEXT，JSON 序列化后的例句列表。
+- `created_at`: TEXT，RFC3339 时间。
+- 唯一约束：`language + word`。
 
-## 4. API 设计 (Draft)
+### `reviews`
 
-- `POST /api/words`: 添加单词
-    - Body: `{ "word": "text", "language": "en" }`
-    - Resp: `{ "id": "...", "translation": "...", "examples": [...] }`
-- `GET /api/reviews/due`: 获取待复习列表
-    - Query: `?limit=50&language=en`
-- `POST /api/reviews/{id}/log`: 提交复习记录
-    - Body: `{ "grade": "good" }` (grades: again, hard, good, easy)
-- `POST /api/reviews/{id}/undo`: 撤销上次复习 (Optional)
+- `word_id`: TEXT，主键，引用 `words.id`。
+- `interval`: INTEGER。
+- `ease_factor`: REAL。
+- `streak`: INTEGER。
+- `next_review_at`: TEXT，RFC3339 时间。
+- `last_reviewed_at`: TEXT，可空。
+- `history`: TEXT，JSON 序列化后的复习历史。
 
-## 5. 部署架构
-使用 `docker-compose.yml` 根目录编排:
-1. `db`: Postgres:16-alpine
-2. `backend`: `api/Dockerfile`
-3. `web`: `web/Dockerfile` (Nginx serving build)
+## 4. 运行模式
+
+- `local`: CLI 直接读写 `[local].db_path`。
+- `server`: CLI/Web 通过 HTTP 访问 Rust server；server 读写 `[server].db_path`。
+- 默认建议 `[local].db_path` 和 `[server].db_path` 指向同一个 SQLite 文件。
+
+没有实时同步。跨设备或服务器同步通过手动 JSON 导入导出完成。
+
+## 5. API
+
+- `POST /api/v1/words/`: 添加单词。
+- `GET /api/v1/reviews/due`: 获取待复习列表。
+- `POST /api/v1/reviews/{word_id}/log`: 提交复习记录。
+- `POST /api/v1/reviews/{word_id}/undo`: 撤销上次复习。
+- `GET /api/v1/export`: 导出 JSON。
+- `POST /api/v1/import`: 导入 JSON。
+
+## 6. 部署
+
+`docker-compose.yml` 包含：
+
+1. `server`: Rust API server，挂载宿主机 `~/.neko-words` 保存配置和 SQLite。
+2. `web`: Nginx 托管的前端。

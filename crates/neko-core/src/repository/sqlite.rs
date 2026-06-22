@@ -1,57 +1,58 @@
-use std::sync::Once;
+use std::collections::HashSet;
+use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use sqlx::{any::AnyPoolOptions, AnyPool, Row};
+use chrono::Utc;
+use sqlx::sqlite::{
+    SqliteArguments, SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow,
+};
+use sqlx::Row;
 use uuid::Uuid;
 
+use super::{parse_datetime, parse_optional_datetime, WordRepository};
 use crate::{
-    models::{DueReview, Example, Grade, Review, Word},
+    models::{DueReview, Example, ExportData, Grade, Review, Word},
     review::{apply_grade, initial_review, reset_review, undo_last},
 };
 
-#[async_trait]
-pub trait WordRepository: Send + Sync {
-    async fn migrate(&self) -> Result<()>;
-    async fn find_word(&self, word: &str, language: &str) -> Result<Option<Word>>;
-    async fn insert_word_with_review(
-        &self,
-        word: &str,
-        language: &str,
-        translation: &str,
-        examples: &[Example],
-    ) -> Result<Word>;
-    async fn reset_review_for_word(&self, word_id: &str) -> Result<Word>;
-    async fn due_reviews(&self, language: &str, limit: i64) -> Result<Vec<DueReview>>;
-    async fn log_review(&self, word_id: &str, grade: Grade) -> Result<Review>;
-    async fn undo_review(&self, word_id: &str) -> Result<Grade>;
-}
-
 #[derive(Clone)]
-pub struct SqlxRepository {
-    pool: AnyPool,
+pub struct SqliteRepository {
+    pool: SqlitePool,
 }
 
-impl SqlxRepository {
+impl SqliteRepository {
     pub async fn connect(database_url: &str) -> Result<Self> {
-        install_any_drivers();
-        let pool = AnyPoolOptions::new()
+        let options = SqliteConnectOptions::from_str(database_url)
+            .with_context(|| format!("invalid sqlite url: {database_url}"))?
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
             .max_connections(1)
-            .connect(database_url)
+            .connect_with(options)
             .await
             .with_context(|| format!("failed to connect database: {database_url}"))?;
         Ok(Self { pool })
     }
-}
 
-fn install_any_drivers() {
-    static INSTALL: Once = Once::new();
-    INSTALL.call_once(sqlx::any::install_default_drivers);
+    async fn get_word_by_id(&self, word_id: &str) -> Result<Option<Word>> {
+        let row = sqlx::query("SELECT * FROM words WHERE id = ?")
+            .bind(word_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(word_from_row).transpose()
+    }
+
+    async fn get_review(&self, word_id: &str) -> Result<Option<Review>> {
+        let row = sqlx::query("SELECT * FROM reviews WHERE word_id = ?")
+            .bind(word_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(review_from_row).transpose()
+    }
 }
 
 #[async_trait]
-impl WordRepository for SqlxRepository {
+impl WordRepository for SqliteRepository {
     async fn migrate(&self) -> Result<()> {
         sqlx::query(
             r#"
@@ -212,29 +213,69 @@ impl WordRepository for SqlxRepository {
         upsert_review_query(&review).execute(&self.pool).await?;
         Ok(grade)
     }
-}
 
-impl SqlxRepository {
-    async fn get_word_by_id(&self, word_id: &str) -> Result<Option<Word>> {
-        let row = sqlx::query("SELECT * FROM words WHERE id = ?")
-            .bind(word_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        row.map(word_from_row).transpose()
+    async fn export_all(&self) -> Result<ExportData> {
+        let words = sqlx::query("SELECT * FROM words ORDER BY created_at")
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(word_from_row)
+            .collect::<Result<Vec<_>>>()?;
+        let reviews = sqlx::query("SELECT * FROM reviews")
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(review_from_row)
+            .collect::<Result<Vec<_>>>()?;
+        Ok(ExportData {
+            version: 1,
+            words,
+            reviews,
+        })
     }
 
-    async fn get_review(&self, word_id: &str) -> Result<Option<Review>> {
-        let row = sqlx::query("SELECT * FROM reviews WHERE word_id = ?")
-            .bind(word_id)
-            .fetch_optional(&self.pool)
+    async fn import_all(&self, data: &ExportData) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for word in &data.words {
+            sqlx::query(
+                r#"
+                INSERT INTO words (id, word, language, translation, examples, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    word = excluded.word,
+                    language = excluded.language,
+                    translation = excluded.translation,
+                    examples = excluded.examples,
+                    created_at = excluded.created_at
+                "#,
+            )
+            .bind(&word.id)
+            .bind(&word.word)
+            .bind(&word.language)
+            .bind(&word.translation)
+            .bind(serde_json::to_string(&word.examples)?)
+            .bind(word.created_at.to_rfc3339())
+            .execute(&mut *tx)
             .await?;
-        row.map(review_from_row).transpose()
+        }
+        let with_review: HashSet<&str> = data.reviews.iter().map(|r| r.word_id.as_str()).collect();
+        for review in &data.reviews {
+            upsert_review_query(review).execute(&mut *tx).await?;
+        }
+        for word in &data.words {
+            if !with_review.contains(word.id.as_str()) {
+                let review = initial_review(word.id.clone());
+                upsert_review_query(&review).execute(&mut *tx).await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(())
     }
 }
 
 fn upsert_review_query(
     review: &Review,
-) -> sqlx::query::Query<'_, sqlx::Any, sqlx::any::AnyArguments<'_>> {
+) -> sqlx::query::Query<'static, sqlx::Sqlite, SqliteArguments<'static>> {
     sqlx::query(
         r#"
         INSERT INTO reviews
@@ -249,7 +290,7 @@ fn upsert_review_query(
             history = excluded.history
         "#,
     )
-    .bind(&review.word_id)
+    .bind(review.word_id.clone())
     .bind(review.interval)
     .bind(review.ease_factor)
     .bind(review.streak)
@@ -258,7 +299,7 @@ fn upsert_review_query(
     .bind(serde_json::to_string(&review.history).expect("review history serializes"))
 }
 
-fn word_from_row(row: sqlx::any::AnyRow) -> Result<Word> {
+fn word_from_row(row: SqliteRow) -> Result<Word> {
     Ok(Word {
         id: row.try_get("id")?,
         word: row.try_get("word")?,
@@ -269,7 +310,7 @@ fn word_from_row(row: sqlx::any::AnyRow) -> Result<Word> {
     })
 }
 
-fn review_from_row(row: sqlx::any::AnyRow) -> Result<Review> {
+fn review_from_row(row: SqliteRow) -> Result<Review> {
     Ok(Review {
         word_id: row.try_get("word_id")?,
         interval: row.try_get("interval")?,
@@ -281,39 +322,82 @@ fn review_from_row(row: sqlx::any::AnyRow) -> Result<Review> {
     })
 }
 
-fn parse_datetime(value: &str) -> Result<DateTime<Utc>> {
-    Ok(DateTime::parse_from_rfc3339(value)?.with_timezone(&Utc))
-}
-
-fn parse_optional_datetime(value: Option<String>) -> Result<Option<DateTime<Utc>>> {
-    value.as_deref().map(parse_datetime).transpose()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn sqlite_repository_can_add_review_and_undo() {
-        let repo = SqlxRepository::connect("sqlite::memory:").await.unwrap();
+        let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
         repo.migrate().await.unwrap();
         let word = repo
             .insert_word_with_review(
                 "test",
                 "en",
-                "/test/ 测试",
+                "/x/ 测试",
                 &[Example {
-                    sentence: "This is a test.".to_string(),
-                    translation: "这是一个测试。".to_string(),
+                    sentence: "test sentence".to_string(),
+                    translation: "测试句子".to_string(),
                 }],
             )
             .await
             .unwrap();
 
-        let due = repo.due_reviews("en", 10).await.unwrap();
-        assert_eq!(due.len(), 1);
         repo.log_review(&word.id, Grade::Good).await.unwrap();
         let undone = repo.undo_review(&word.id).await.unwrap();
         assert_eq!(undone, Grade::Good);
+    }
+
+    #[tokio::test]
+    async fn export_then_import_round_trips() {
+        let source = SqliteRepository::connect("sqlite::memory:").await.unwrap();
+        source.migrate().await.unwrap();
+        source
+            .insert_word_with_review(
+                "alpha",
+                "en",
+                "/a/ 甲",
+                &[Example {
+                    sentence: "alpha sentence".to_string(),
+                    translation: "甲句".to_string(),
+                }],
+            )
+            .await
+            .unwrap();
+        let dump = source.export_all().await.unwrap();
+        assert_eq!(dump.words.len(), 1);
+        assert_eq!(dump.reviews.len(), 1);
+
+        let target = SqliteRepository::connect("sqlite::memory:").await.unwrap();
+        target.migrate().await.unwrap();
+        target.import_all(&dump).await.unwrap();
+        let restored = target.export_all().await.unwrap();
+        assert_eq!(restored.words, dump.words);
+        assert_eq!(restored.reviews, dump.reviews);
+    }
+
+    #[tokio::test]
+    async fn import_words_without_reviews_synthesizes_initial_review() {
+        let source = SqliteRepository::connect("sqlite::memory:").await.unwrap();
+        source.migrate().await.unwrap();
+        let word = source
+            .insert_word_with_review("beta", "en", "/b/ 乙", &[])
+            .await
+            .unwrap();
+
+        // Words-only payload (mirrors the legacy backup that lacked reviews).
+        let dump = ExportData {
+            version: 1,
+            words: vec![word.clone()],
+            reviews: vec![],
+        };
+
+        let target = SqliteRepository::connect("sqlite::memory:").await.unwrap();
+        target.migrate().await.unwrap();
+        target.import_all(&dump).await.unwrap();
+
+        let due = target.due_reviews("en", 10).await.unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].word.id, word.id);
     }
 }

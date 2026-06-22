@@ -30,12 +30,17 @@ pub struct LocalConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ClientServerConfig {
     pub api_base_url: String,
+    #[serde(default)]
+    pub auth_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ServerConfig {
     pub bind: String,
-    pub database_url: String,
+    #[serde(default = "default_db_path")]
+    pub db_path: String,
+    #[serde(default)]
+    pub auth_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -48,7 +53,7 @@ pub struct LlmConfig {
 impl Default for LocalConfig {
     fn default() -> Self {
         Self {
-            db_path: "~/.neko-words/neko-words.sqlite3".to_string(),
+            db_path: default_db_path(),
         }
     }
 }
@@ -57,6 +62,7 @@ impl Default for ClientServerConfig {
     fn default() -> Self {
         Self {
             api_base_url: "http://localhost:8002/api/v1".to_string(),
+            auth_token: None,
         }
     }
 }
@@ -65,7 +71,8 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             bind: "127.0.0.1:8002".to_string(),
-            database_url: "postgres://neko:neko@localhost:5432/neko_words".to_string(),
+            db_path: default_db_path(),
+            auth_token: None,
         }
     }
 }
@@ -99,12 +106,12 @@ impl AppConfig {
 
     pub fn local_db_url(&self) -> Result<String> {
         let local = self.local.as_ref().context("missing [local] config")?;
-        let path = expand_home(&local.db_path)?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create data directory {}", parent.display()))?;
-        }
-        Ok(format!("sqlite://{}", path.display()))
+        sqlite_url_from_path(&local.db_path)
+    }
+
+    pub fn server_db_url(&self) -> Result<String> {
+        let server = self.server.as_ref().context("missing [server] config")?;
+        sqlite_url_from_path(&server.db_path)
     }
 }
 
@@ -128,6 +135,19 @@ pub fn expand_home(value: &str) -> Result<PathBuf> {
         return Ok(home_dir()?.join(rest));
     }
     Ok(PathBuf::from(value))
+}
+
+fn sqlite_url_from_path(value: &str) -> Result<String> {
+    let path = expand_home(value)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create data directory {}", parent.display()))?;
+    }
+    Ok(format!("sqlite://{}", path.display()))
+}
+
+fn default_db_path() -> String {
+    "~/.neko-words/neko-words.sqlite3".to_string()
 }
 
 fn home_dir() -> Result<PathBuf> {
