@@ -2,6 +2,7 @@
 name = "neko-cli"
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [[bin]]

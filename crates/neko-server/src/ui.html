@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Neko Words</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f4ef;
+      --panel: #ffffff;
+      --text: #1f2933;
+      --muted: #637083;
+      --line: #d8dde6;
+      --accent: #0f766e;
+      --accent-strong: #0b5f59;
+      --danger: #b42318;
+      --warn: #a16207;
+      --ok: #166534;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    main {
+      width: min(920px, 100%);
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      font-size: 28px;
+      line-height: 1.1;
+      margin: 0;
+    }
+
+    h2 {
+      font-size: 18px;
+      margin: 0 0 12px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      min-height: 42px;
+      padding: 0 14px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+
+    button.primary:hover {
+      background: var(--accent-strong);
+    }
+
+    button.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.62;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .row.wrap {
+      flex-wrap: wrap;
+    }
+
+    input {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 12px;
+      background: var(--panel);
+      color: var(--text);
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 14px;
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .small {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .status {
+      margin-top: 12px;
+      min-height: 22px;
+      color: var(--muted);
+    }
+
+    .status.error {
+      color: var(--danger);
+    }
+
+    .status.ok {
+      color: var(--ok);
+    }
+
+    .word {
+      font-size: 40px;
+      line-height: 1.1;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+      margin: 10px 0;
+    }
+
+    .translation {
+      border-top: 1px solid var(--line);
+      margin-top: 16px;
+      padding-top: 16px;
+    }
+
+    .examples {
+      padding-left: 18px;
+      margin: 12px 0 0;
+    }
+
+    .examples li {
+      margin-bottom: 10px;
+    }
+
+    .grade-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .recent {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .recent-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .recent-item strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    @media (max-width: 640px) {
+      main {
+        padding: 16px;
+      }
+
+      header,
+      .row {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .tabs,
+      .grade-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .tabs {
+        display: grid;
+      }
+
+      .word {
+        font-size: 34px;
+      }
+
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Neko Words</h1>
+        <div class="small">Local API and review page</div>
+      </div>
+      <nav class="tabs">
+        <button id="tab-add" class="active" type="button">Add</button>
+        <button id="tab-review" type="button">Review</button>
+      </nav>
+    </header>
+
+    <section id="add-panel" class="panel">
+      <h2>Add word</h2>
+      <form id="add-form">
+        <label for="word-input">Word or phrase</label>
+        <div class="row">
+          <input id="word-input" name="word" autocomplete="off" autofocus placeholder="hello">
+          <button id="add-button" class="primary" type="submit">Add</button>
+        </div>
+        <div class="row wrap" style="margin-top: 10px;">
+          <div style="min-width: 130px; flex: 0 0 130px;">
+            <label for="language-input">Language</label>
+            <input id="language-input" value="en" autocomplete="off">
+          </div>
+          <div style="min-width: 220px; flex: 1;">
+            <label for="token-input">Auth token, optional</label>
+            <input id="token-input" type="password" autocomplete="off" placeholder="Only if configured on server">
+          </div>
+        </div>
+      </form>
+      <div id="add-status" class="status"></div>
+      <div id="recent" class="recent"></div>
+    </section>
+
+    <section id="review-panel" class="panel hidden">
+      <div class="row" style="justify-content: space-between;">
+        <h2>Review</h2>
+        <button id="load-review" type="button">Load due words</button>
+      </div>
+      <div id="review-status" class="status"></div>
+
+      <div id="review-card" class="hidden">
+        <div class="small" id="review-count"></div>
+        <div class="word" id="review-word"></div>
+        <button id="speak-word" type="button">Speak</button>
+        <div id="hint" class="small" style="margin-top: 14px;"></div>
+        <button id="reveal" class="primary" type="button" style="margin-top: 14px;">Reveal answer</button>
+        <div id="answer" class="translation hidden"></div>
+        <div id="grades" class="grade-grid hidden">
+          <button type="button" data-grade="again">Again</button>
+          <button type="button" data-grade="hard">Hard</button>
+          <button type="button" data-grade="good" class="primary">Good</button>
+          <button type="button" data-grade="easy">Easy</button>
+        </div>
+        <button id="undo" type="button" class="hidden" style="margin-top: 12px;">Undo last grade</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const apiBase = "/api/v1";
+    const els = {
+      addTab: document.querySelector("#tab-add"),
+      reviewTab: document.querySelector("#tab-review"),
+      addPanel: document.querySelector("#add-panel"),
+      reviewPanel: document.querySelector("#review-panel"),
+      addForm: document.querySelector("#add-form"),
+      wordInput: document.querySelector("#word-input"),
+      languageInput: document.querySelector("#language-input"),
+      tokenInput: document.querySelector("#token-input"),
+      addButton: document.querySelector("#add-button"),
+      addStatus: document.querySelector("#add-status"),
+      recent: document.querySelector("#recent"),
+      loadReview: document.querySelector("#load-review"),
+      reviewStatus: document.querySelector("#review-status"),
+      reviewCard: document.querySelector("#review-card"),
+      reviewCount: document.querySelector("#review-count"),
+      reviewWord: document.querySelector("#review-word"),
+      speakWord: document.querySelector("#speak-word"),
+      hint: document.querySelector("#hint"),
+      reveal: document.querySelector("#reveal"),
+      answer: document.querySelector("#answer"),
+      grades: document.querySelector("#grades"),
+      undo: document.querySelector("#undo")
+    };
+
+    let due = [];
+    let index = 0;
+    let current = null;
+    let lastReviewedWordId = null;
+
+    els.tokenInput.value = localStorage.getItem("nekoWordsToken") || "";
+    els.tokenInput.addEventListener("change", () => {
+      localStorage.setItem("nekoWordsToken", els.tokenInput.value.trim());
+    });
+
+    function headers() {
+      const token = els.tokenInput.value.trim();
+      const h = { "Content-Type": "application/json" };
+      if (token) h.Authorization = `Bearer ${token}`;
+      return h;
+    }
+
+    function setStatus(el, message, kind = "") {
+      el.textContent = message;
+      el.className = `status ${kind}`;
+    }
+
+    function showTab(name) {
+      const review = name === "review";
+      els.addPanel.classList.toggle("hidden", review);
+      els.reviewPanel.classList.toggle("hidden", !review);
+      els.addTab.classList.toggle("active", !review);
+      els.reviewTab.classList.toggle("active", review);
+      if (review && due.length === 0) loadDue();
+    }
+
+    els.addTab.addEventListener("click", () => showTab("add"));
+    els.reviewTab.addEventListener("click", () => showTab("review"));
+
+    els.addForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const word = els.wordInput.value.trim();
+      const language = els.languageInput.value.trim() || "en";
+      if (!word) return;
+      els.addButton.disabled = true;
+      setStatus(els.addStatus, "Adding...");
+      try {
+        const response = await fetch(`${apiBase}/words/`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ word, language })
+        });
+        const data = await readJson(response);
+        renderRecent(data);
+        els.wordInput.value = "";
+        els.wordInput.focus();
+        setStatus(els.addStatus, data.duplicate ? "Already existed. Review schedule was reset." : "Added.", "ok");
+      } catch (error) {
+        setStatus(els.addStatus, error.message, "error");
+      } finally {
+        els.addButton.disabled = false;
+      }
+    });
+
+    function renderRecent(result) {
+      const item = document.createElement("div");
+      item.className = "recent-item";
+      const word = result.word;
+      item.innerHTML = `
+        <strong>${escapeHtml(word.word)}${result.duplicate ? " (reset)" : ""}</strong>
+        <div>${escapeHtml(word.translation || "")}</div>
+        <div class="small">${escapeHtml(word.examples?.[0]?.sentence || "")}</div>
+      `;
+      els.recent.prepend(item);
+    }
+
+    els.loadReview.addEventListener("click", loadDue);
+
+    async function loadDue() {
+      const language = encodeURIComponent(els.languageInput.value.trim() || "en");
+      setStatus(els.reviewStatus, "Loading...");
+      els.reviewCard.classList.add("hidden");
+      try {
+        const response = await fetch(`${apiBase}/reviews/due?language=${language}&limit=50`, {
+          headers: headers()
+        });
+        due = await readJson(response);
+        index = 0;
+        lastReviewedWordId = null;
+        if (due.length === 0) {
+          setStatus(els.reviewStatus, "No words are due.", "ok");
+          return;
+        }
+        setStatus(els.reviewStatus, "");
+        showCurrent();
+      } catch (error) {
+        setStatus(els.reviewStatus, error.message, "error");
+      }
+    }
+
+    function showCurrent() {
+      current = due[index];
+      if (!current) {
+        els.reviewCard.classList.add("hidden");
+        setStatus(els.reviewStatus, "All done.", "ok");
+        return;
+      }
+      const word = current.word;
+      els.reviewCard.classList.remove("hidden");
+      els.answer.classList.add("hidden");
+      els.grades.classList.add("hidden");
+      els.reveal.classList.remove("hidden");
+      els.undo.classList.toggle("hidden", !lastReviewedWordId);
+      els.reviewCount.textContent = `${index + 1} / ${due.length}`;
+      els.reviewWord.textContent = word.word;
+      els.hint.textContent = word.examples?.[0]?.sentence || "";
+      els.answer.innerHTML = renderAnswer(word);
+    }
+
+    els.reveal.addEventListener("click", revealAnswer);
+    function revealAnswer() {
+      if (!current) return;
+      els.answer.classList.remove("hidden");
+      els.grades.classList.remove("hidden");
+      els.reveal.classList.add("hidden");
+    }
+
+    els.speakWord.addEventListener("click", () => {
+      if (!current || !window.speechSynthesis) return;
+      const utterance = new SpeechSynthesisUtterance(current.word.word);
+      utterance.lang = current.word.language === "en" ? "en-US" : current.word.language;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    });
+
+    els.grades.addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-grade]");
+      if (!button || !current) return;
+      await gradeCurrent(button.dataset.grade);
+    });
+
+    async function gradeCurrent(grade) {
+      const wordId = current.word.id;
+      setStatus(els.reviewStatus, "Saving...");
+      try {
+        const response = await fetch(`${apiBase}/reviews/${encodeURIComponent(wordId)}/log`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ grade })
+        });
+        await readJson(response);
+        lastReviewedWordId = wordId;
+        index += 1;
+        setStatus(els.reviewStatus, "");
+        showCurrent();
+      } catch (error) {
+        setStatus(els.reviewStatus, error.message, "error");
+      }
+    }
+
+    els.undo.addEventListener("click", undoLast);
+    async function undoLast() {
+      if (!lastReviewedWordId) return;
+      setStatus(els.reviewStatus, "Undoing...");
+      try {
+        const response = await fetch(`${apiBase}/reviews/${encodeURIComponent(lastReviewedWordId)}/undo`, {
+          method: "POST",
+          headers: headers()
+        });
+        await readJson(response);
+        index = Math.max(0, index - 1);
+        lastReviewedWordId = null;
+        setStatus(els.reviewStatus, "");
+        showCurrent();
+      } catch (error) {
+        setStatus(els.reviewStatus, error.message, "error");
+      }
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (els.reviewPanel.classList.contains("hidden")) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        undoLast();
+        return;
+      }
+      if (event.key === " ") {
+        event.preventDefault();
+        if (els.answer.classList.contains("hidden")) revealAnswer();
+        else gradeCurrent("good");
+      }
+      if (["1", "2", "3", "4"].includes(event.key)) {
+        const grades = ["again", "hard", "good", "easy"];
+        gradeCurrent(grades[Number(event.key) - 1]);
+      }
+    });
+
+    async function readJson(response) {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || `Request failed: ${response.status}`);
+      }
+      return data;
+    }
+
+    function renderAnswer(word) {
+      const examples = (word.examples || []).map((ex) => `
+        <li>
+          <div>${escapeHtml(ex.sentence || "")}</div>
+          <div class="small">${escapeHtml(ex.translation || "")}</div>
+        </li>
+      `).join("");
+      return `
+        <strong>${escapeHtml(word.translation || "")}</strong>
+        <ol class="examples">${examples}</ol>
+      `;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+  </script>
+</body>
+</html>

@@ -2,15 +2,15 @@ use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
 use axum::{
+    Json, Router,
     extract::{Path, Query, Request, State},
     http::StatusCode,
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use neko_core::{
-    config::{config_path, AppConfig, Mode},
+    config::{AppConfig, Mode, config_path},
     llm::OpenAiCompatibleEnricher,
     models::{AddWordResult, DueReview, ExportData, Grade, Review},
     repository::{SqliteRepository, WordRepository},
@@ -109,7 +109,9 @@ pub async fn run(cfg: AppConfig) -> Result<()> {
         .await
         .with_context(|| format!("failed to bind {}", server.bind))?;
     let addr: SocketAddr = listener.local_addr()?;
-    println!("Neko Words API listening on http://{addr}");
+    println!("Neko Words listening on http://{addr}");
+    println!("Web UI: http://{addr}");
+    println!("API: http://{addr}/api/v1");
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -150,11 +152,8 @@ async fn auth(State(state): State<AppState>, request: Request, next: Next) -> Re
     }
 }
 
-async fn root() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "message": "Welcome to Neko Words API",
-        "api": "/api/v1"
-    }))
+async fn root() -> Html<&'static str> {
+    Html(include_str!("ui.html"))
 }
 
 async fn add_word(

@@ -1,15 +1,15 @@
 # Neko Words
 
-Neko Words is a self-hosted vocabulary builder with spaced repetition and LLM-powered word enrichment.
+Neko Words is a local-first vocabulary builder with spaced repetition and LLM-powered word enrichment.
 
-The app is SQLite-only. Local CLI mode and server mode both store data in a local SQLite database; server mode only exposes the same data through HTTP. There is no realtime sync. Manual sync uses JSON export/import.
+The app is SQLite-only. Local CLI mode and server mode both store data in a local SQLite database. Server mode exposes the same data through HTTP and serves a built-in minimal web page for adding and reviewing words. There is no realtime sync. Manual sync uses JSON export/import.
 
 ## Project Structure
 
 - `crates/neko-core`: shared domain models, review algorithm, LLM client, service layer, and SQLite repository.
 - `crates/neko-cli`: `neko-words` command-line application.
-- `crates/neko-server`: Axum HTTP API server.
-- `web/`: React/Vite frontend.
+- `crates/neko-server`: Axum HTTP API server and built-in HTML UI.
+- `web/`: legacy React/Vite frontend, not required for the normal local flow.
 - `docs/`: requirements and architecture notes.
 
 ## Configuration
@@ -77,7 +77,7 @@ The installed binary name is `neko-words`.
 
 ## Server
 
-Start the API with:
+Start the API and built-in web page with:
 
 ```bash
 cargo run -p neko-cli -- server
@@ -98,6 +98,20 @@ The HTTP API is mounted under `/api/v1`:
 - `GET /api/v1/export`
 - `POST /api/v1/import`
 
+The built-in web page is served from `/` on the same port:
+
+```text
+http://127.0.0.1:8002/
+```
+
+The page supports adding words and reviewing due cards from desktop or mobile browsers. The CLI can use the same server by switching to server mode:
+
+```bash
+cargo run -p neko-cli -- mode server
+cargo run -p neko-cli -- add hello --tag en
+cargo run -p neko-cli -- review --tag en
+```
+
 Server mode uses SQLite at `[server].db_path`. By default this is the same file as local mode, `~/.neko-words/neko-words.sqlite3`.
 
 ### Authentication
@@ -117,7 +131,7 @@ Both commands follow the configured `mode`: in local mode they read/write the SQ
 
 ## Docker
 
-The compose setup runs the Rust server and web frontend. It mounts your host `~/.neko-words` directory into the server container so the same SQLite database and config are used.
+The compose setup runs the Rust server. It mounts your host `~/.neko-words` directory into the server container so the same SQLite database and config are used. The server provides both the API and the built-in web page on port `8002`.
 
 ```bash
 docker compose up --build

@@ -7,8 +7,9 @@ members = [
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
-license = "MIT"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.96"
 version = "0.1.1"
 
 [workspace.dependencies]

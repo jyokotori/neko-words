@@ -8,11 +8,3 @@ services:
       - "8002:8002"
     volumes:
       - ${HOME}/.neko-words:/root/.neko-words
-
-  web:
-    build: ./web
-    restart: always
-    ports:
-      - "3007:80"
-    depends_on:
-      - server
