@@ -11,7 +11,7 @@ pub struct Example {
 pub struct Word {
     pub id: String,
     pub word: String,
-    pub language: String,
+    pub tag: String,
     pub translation: String,
     pub examples: Vec<Example>,
     pub created_at: DateTime<Utc>,

@@ -4,13 +4,13 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
+use sqlx::Row;
 use sqlx::sqlite::{
     SqliteArguments, SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow,
 };
-use sqlx::Row;
 use uuid::Uuid;
 
-use super::{parse_datetime, parse_optional_datetime, WordRepository};
+use super::{WordRepository, parse_datetime, parse_optional_datetime};
 use crate::{
     models::{DueReview, Example, ExportData, Grade, Review, Word},
     review::{apply_grade, initial_review, reset_review, undo_last},
@@ -59,11 +59,11 @@ impl WordRepository for SqliteRepository {
             CREATE TABLE IF NOT EXISTS words (
                 id TEXT PRIMARY KEY,
                 word TEXT NOT NULL,
-                language TEXT NOT NULL,
+                tag TEXT NOT NULL,
                 translation TEXT NOT NULL,
                 examples TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                UNIQUE(language, word)
+                UNIQUE(tag, word)
             )
             "#,
         )
@@ -89,10 +89,10 @@ impl WordRepository for SqliteRepository {
         Ok(())
     }
 
-    async fn find_word(&self, word: &str, language: &str) -> Result<Option<Word>> {
-        let row = sqlx::query("SELECT * FROM words WHERE word = ? AND language = ?")
+    async fn find_word(&self, word: &str, tag: &str) -> Result<Option<Word>> {
+        let row = sqlx::query("SELECT * FROM words WHERE word = ? AND tag = ?")
             .bind(word)
-            .bind(language)
+            .bind(tag)
             .fetch_optional(&self.pool)
             .await?;
         row.map(word_from_row).transpose()
@@ -101,7 +101,7 @@ impl WordRepository for SqliteRepository {
     async fn insert_word_with_review(
         &self,
         word: &str,
-        language: &str,
+        tag: &str,
         translation: &str,
         examples: &[Example],
     ) -> Result<Word> {
@@ -111,11 +111,11 @@ impl WordRepository for SqliteRepository {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
-            "INSERT INTO words (id, word, language, translation, examples, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO words (id, word, tag, translation, examples, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(word)
-        .bind(language)
+        .bind(tag)
         .bind(translation)
         .bind(examples_json)
         .bind(created_at.to_rfc3339())
@@ -126,7 +126,7 @@ impl WordRepository for SqliteRepository {
         upsert_review_query(&review).execute(&mut *tx).await?;
         tx.commit().await?;
 
-        self.find_word(word, language)
+        self.find_word(word, tag)
             .await?
             .context("inserted word was not found")
     }
@@ -143,23 +143,23 @@ impl WordRepository for SqliteRepository {
             .context("word not found while resetting review")
     }
 
-    async fn due_reviews(&self, language: &str, limit: i64) -> Result<Vec<DueReview>> {
+    async fn due_reviews(&self, tag: &str, limit: i64) -> Result<Vec<DueReview>> {
         let rows = sqlx::query(
             r#"
             SELECT
-                w.id AS w_id, w.word AS w_word, w.language AS w_language,
+                w.id AS w_id, w.word AS w_word, w.tag AS w_tag,
                 w.translation AS w_translation, w.examples AS w_examples, w.created_at AS w_created_at,
                 r.word_id AS r_word_id, r.interval AS r_interval, r.ease_factor AS r_ease_factor,
                 r.streak AS r_streak, r.next_review_at AS r_next_review_at,
                 r.last_reviewed_at AS r_last_reviewed_at, r.history AS r_history
             FROM reviews r
             JOIN words w ON w.id = r.word_id
-            WHERE w.language = ? AND r.next_review_at <= ?
+            WHERE w.tag = ? AND r.next_review_at <= ?
             ORDER BY r.streak ASC, r.ease_factor ASC, r.interval ASC
             LIMIT ?
             "#,
         )
-        .bind(language)
+        .bind(tag)
         .bind(Utc::now().to_rfc3339())
         .bind(limit)
         .fetch_all(&self.pool)
@@ -171,7 +171,7 @@ impl WordRepository for SqliteRepository {
                     word: Word {
                         id: row.try_get("w_id")?,
                         word: row.try_get("w_word")?,
-                        language: row.try_get("w_language")?,
+                        tag: row.try_get("w_tag")?,
                         translation: row.try_get("w_translation")?,
                         examples: serde_json::from_str(&row.try_get::<String, _>("w_examples")?)?,
                         created_at: parse_datetime(&row.try_get::<String, _>("w_created_at")?)?,
@@ -239,11 +239,11 @@ impl WordRepository for SqliteRepository {
         for word in &data.words {
             sqlx::query(
                 r#"
-                INSERT INTO words (id, word, language, translation, examples, created_at)
+                INSERT INTO words (id, word, tag, translation, examples, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     word = excluded.word,
-                    language = excluded.language,
+                    tag = excluded.tag,
                     translation = excluded.translation,
                     examples = excluded.examples,
                     created_at = excluded.created_at
@@ -251,7 +251,7 @@ impl WordRepository for SqliteRepository {
             )
             .bind(&word.id)
             .bind(&word.word)
-            .bind(&word.language)
+            .bind(&word.tag)
             .bind(&word.translation)
             .bind(serde_json::to_string(&word.examples)?)
             .bind(word.created_at.to_rfc3339())
@@ -303,7 +303,7 @@ fn word_from_row(row: SqliteRow) -> Result<Word> {
     Ok(Word {
         id: row.try_get("id")?,
         word: row.try_get("word")?,
-        language: row.try_get("language")?,
+        tag: row.try_get("tag")?,
         translation: row.try_get("translation")?,
         examples: serde_json::from_str(&row.try_get::<String, _>("examples")?)?,
         created_at: parse_datetime(&row.try_get::<String, _>("created_at")?)?,

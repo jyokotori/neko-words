@@ -9,7 +9,6 @@ The app is SQLite-only. Local CLI mode and server mode both store data in a loca
 - `crates/neko-core`: shared domain models, review algorithm, LLM client, service layer, and SQLite repository.
 - `crates/neko-cli`: `neko-words` command-line application.
 - `crates/neko-server`: Axum HTTP API server and built-in HTML UI.
-- `web/`: legacy React/Vite frontend, not required for the normal local flow.
 - `docs/`: requirements and architecture notes.
 
 ## Configuration
@@ -49,6 +48,7 @@ db_path = "~/.neko-words/neko-words.sqlite3"
 api_key = "sk-your-api-key"
 base_url = "https://api.openai.com/v1"
 model = "gpt-5.5"
+target_language = "Chinese"
 ```
 
 ## Build
@@ -61,9 +61,9 @@ cargo build
 
 ```bash
 cargo run -p neko-cli -- config init --api-key sk-your-api-key
-cargo run -p neko-cli -- add hello --tag en
-cargo run -p neko-cli -- add --tag en
-cargo run -p neko-cli -- review --tag en --limit 50
+cargo run -p neko-cli -- add hello --tag default
+cargo run -p neko-cli -- add --tag default
+cargo run -p neko-cli -- review --tag default --limit 50
 cargo run -p neko-cli -- mode local
 cargo run -p neko-cli -- mode server
 cargo run -p neko-cli -- config path
@@ -75,6 +75,8 @@ cargo run -p neko-cli -- import backup.json
 
 The installed binary name is `neko-words`.
 
+`--tag` is a label for grouping and filtering words. It does not tell the LLM what source language the word is. The LLM detects the source language itself and writes definitions/example translations in `[llm].target_language`.
+
 ## Server
 
 Start the API and built-in web page with:
@@ -82,6 +84,14 @@ Start the API and built-in web page with:
 ```bash
 cargo run -p neko-cli -- server
 ```
+
+The server listens on `[server].bind` from `~/.neko-words/config.toml`. For a one-off bind address override:
+
+```bash
+cargo run -p neko-cli -- server --bind 0.0.0.0:8002
+```
+
+When the effective bind address is reachable from other devices and `[server].auth_token` is missing, the CLI prompts for a token. Press Enter to use the generated 16-character token; it is saved to `~/.neko-words/config.toml`. The built-in web page stores the token in browser local storage after you enter it.
 
 or:
 
@@ -91,8 +101,8 @@ cargo run -p neko-server
 
 The HTTP API is mounted under `/api/v1`:
 
-- `POST /api/v1/words/`
-- `GET /api/v1/reviews/due`
+- `POST /api/v1/words/` with JSON body `{ "word": "hello", "tag": "default" }`
+- `GET /api/v1/reviews/due?tag=default&limit=50`
 - `POST /api/v1/reviews/{word_id}/log`
 - `POST /api/v1/reviews/{word_id}/undo`
 - `GET /api/v1/export`
@@ -108,8 +118,8 @@ The page supports adding words and reviewing due cards from desktop or mobile br
 
 ```bash
 cargo run -p neko-cli -- mode server
-cargo run -p neko-cli -- add hello --tag en
-cargo run -p neko-cli -- review --tag en
+cargo run -p neko-cli -- add hello --tag default
+cargo run -p neko-cli -- review --tag default
 ```
 
 Server mode uses SQLite at `[server].db_path`. By default this is the same file as local mode, `~/.neko-words/neko-words.sqlite3`.

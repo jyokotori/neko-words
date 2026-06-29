@@ -5,7 +5,6 @@
 - `crates/neko-core`: 领域模型、复习算法、LLM 客户端、服务层、SQLite 仓储。
 - `crates/neko-cli`: 命令行工具。
 - `crates/neko-server`: Rust/Axum HTTP API，并在同一端口提供内置极简 HTML 页面。
-- `web/`: 旧 React/Vite 前端，当前本地默认流程不依赖它。
 - `docs/`: 需求和架构文档。
 
 ## 2. 系统架构
@@ -45,11 +44,11 @@ SQLite 是唯一运行时数据库。默认路径：
 
 - `id`: TEXT, UUID 字符串，主键。
 - `word`: TEXT。
-- `language`: TEXT。
+- `tag`: TEXT，用户自定义标签，用于分类和筛选复习。
 - `translation`: TEXT。
 - `examples`: TEXT，JSON 序列化后的例句列表。
 - `created_at`: TEXT，RFC3339 时间。
-- 唯一约束：`language + word`。
+- 唯一约束：`tag + word`。
 
 ### `reviews`
 
@@ -69,17 +68,24 @@ SQLite 是唯一运行时数据库。默认路径：
 
 没有实时同步。跨设备或服务器同步通过手动 JSON 导入导出完成。
 
-## 5. API
+## 5. LLM 富化
+
+- 添加单词时，服务层把原始输入词交给 LLM 富化。
+- LLM 自动识别源语言，并返回规范化后的基础词形、释义和例句。
+- 翻译目标由 `[llm].target_language` 控制，默认 `Chinese`。
+- `tag` 只用于分类和复习筛选，不传递为源语言，也不影响翻译目标。
+
+## 6. API
 
 - `GET /`: 内置 HTML 页面，支持添加单词和复习。
-- `POST /api/v1/words/`: 添加单词。
-- `GET /api/v1/reviews/due`: 获取待复习列表。
+- `POST /api/v1/words/`: 添加单词，请求体包含 `word` 和 `tag`。
+- `GET /api/v1/reviews/due?tag=default&limit=50`: 获取指定标签下的待复习列表。
 - `POST /api/v1/reviews/{word_id}/log`: 提交复习记录。
 - `POST /api/v1/reviews/{word_id}/undo`: 撤销上次复习。
 - `GET /api/v1/export`: 导出 JSON。
 - `POST /api/v1/import`: 导入 JSON。
 
-## 6. 部署
+## 7. 部署
 
 `docker-compose.yml` 包含：
 

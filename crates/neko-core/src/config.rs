@@ -48,6 +48,7 @@ pub struct LlmConfig {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+    pub target_language: String,
 }
 
 impl Default for LocalConfig {
@@ -83,6 +84,7 @@ impl Default for LlmConfig {
             api_key: String::new(),
             base_url: "https://api.openai.com/v1".to_string(),
             model: "gpt-5.5".to_string(),
+            target_language: "Chinese".to_string(),
         }
     }
 }

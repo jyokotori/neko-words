@@ -1,16 +1,18 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    net::SocketAddr,
+};
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use neko_core::{
-    config::{
-        config_path, AppConfig, ClientServerConfig, LlmConfig, Mode, ServerConfig,
-    },
+    config::{AppConfig, ClientServerConfig, LlmConfig, Mode, ServerConfig, config_path},
     llm::OpenAiCompatibleEnricher,
     models::{AddWordResult, DueReview, ExportData, Grade},
     repository::{SqliteRepository, WordRepository},
     service,
 };
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(name = "neko-words", version, about = "Neko Words vocabulary CLI")]
@@ -30,7 +32,7 @@ enum Commands {
         #[command(subcommand)]
         command: ConfigCommand,
     },
-    Server,
+    Server(ServerArgs),
     Export(ExportArgs),
     Import(ImportArgs),
 }
@@ -51,7 +53,7 @@ struct ImportArgs {
 #[derive(Args)]
 struct AddArgs {
     word: Option<String>,
-    #[arg(long, default_value = "en")]
+    #[arg(long, default_value = "default")]
     tag: String,
     #[arg(long)]
     batch: bool,
@@ -59,10 +61,17 @@ struct AddArgs {
 
 #[derive(Args)]
 struct ReviewArgs {
-    #[arg(long, default_value = "en")]
+    #[arg(long, default_value = "default")]
     tag: String,
     #[arg(long, default_value_t = 50)]
     limit: i64,
+}
+
+#[derive(Args)]
+struct ServerArgs {
+    /// Bind address for this server process, for example 0.0.0.0:8002
+    #[arg(long)]
+    bind: Option<String>,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -90,6 +99,9 @@ struct InitConfigArgs {
     /// Model name
     #[arg(long)]
     model: Option<String>,
+    /// Language for generated translations and example translations
+    #[arg(long)]
+    target_language: Option<String>,
 }
 
 #[tokio::main]
@@ -100,7 +112,7 @@ async fn main() -> Result<()> {
         Some(Commands::Review(args)) => review(args).await,
         Some(Commands::Mode { mode }) => set_mode(mode),
         Some(Commands::Config { command }) => config_command(command),
-        Some(Commands::Server) => server().await,
+        Some(Commands::Server(args)) => server(args).await,
         Some(Commands::Export(args)) => export(args).await,
         Some(Commands::Import(args)) => import(args).await,
         None => first_run(),
@@ -114,14 +126,91 @@ fn first_run() -> Result<()> {
     println!("Config: {}", config_path()?.display());
     println!();
     println!("Next:");
-    println!("  neko-words add hello --tag en");
-    println!("  neko-words review --tag en");
+    println!("  neko-words add hello --tag default");
+    println!("  neko-words review --tag default");
     Ok(())
 }
 
-async fn server() -> Result<()> {
-    let cfg = ensure_config(true)?;
+async fn server(args: ServerArgs) -> Result<()> {
+    let mut cfg = ensure_config(true)?;
+    if let Some(bind) = args.bind {
+        cfg.server.as_mut().context("missing [server] config")?.bind = bind;
+    }
+    ensure_server_auth_token(&mut cfg)?;
+    cfg.mode = Some(Mode::Server);
     neko_server::run(cfg).await
+}
+
+fn ensure_server_auth_token(cfg: &mut AppConfig) -> Result<()> {
+    let server = cfg.server.as_ref().context("missing [server] config")?;
+    if !bind_exposes_network(&server.bind) {
+        return Ok(());
+    }
+
+    if let Some(token) = server
+        .auth_token
+        .as_deref()
+        .filter(|token| !token.trim().is_empty())
+    {
+        println!("Web UI auth token: {token}");
+        return Ok(());
+    }
+
+    println!(
+        "Server bind {} is reachable from other devices. Set an auth token before exposing it.",
+        server.bind
+    );
+    let token = prompt("server auth token (press Enter to generate)", None)?;
+    let token = if token.trim().is_empty() {
+        generate_auth_token()
+    } else {
+        token
+    };
+    cfg.server
+        .as_mut()
+        .context("missing [server] config")?
+        .auth_token = Some(token.clone());
+
+    let path = config_path()?;
+    let mut saved_cfg = load_or_default()?;
+    let saved_server = saved_cfg
+        .server
+        .as_mut()
+        .context("missing [server] config in saved config")?;
+    saved_server.auth_token = Some(token.clone());
+    saved_cfg.save(&path)?;
+
+    println!("Auth token saved to {}", path.display());
+    println!("Web UI auth token: {token}");
+    Ok(())
+}
+
+fn bind_exposes_network(bind: &str) -> bool {
+    if let Ok(addr) = bind.parse::<SocketAddr>() {
+        return !addr.ip().is_loopback();
+    }
+
+    let host = bind_host(bind);
+    !matches!(host.as_str(), "127.0.0.1" | "::1" | "localhost")
+}
+
+fn bind_host(bind: &str) -> String {
+    let bind = bind.trim();
+    if let Some(rest) = bind.strip_prefix('[') {
+        return rest
+            .split_once(']')
+            .map_or(rest, |(host, _)| host)
+            .trim()
+            .to_string();
+    }
+    bind.rsplit_once(':')
+        .map_or(bind, |(host, _)| host)
+        .trim()
+        .to_string()
+}
+
+fn generate_auth_token() -> String {
+    Uuid::new_v4().simple().to_string()[..16].to_string()
 }
 
 async fn add(args: AddArgs) -> Result<()> {
@@ -193,12 +282,8 @@ async fn review(args: ReviewArgs) -> Result<()> {
     Ok(())
 }
 
-async fn review_local(
-    repo: &SqliteRepository,
-    language: &str,
-    limit: i64,
-) -> Result<Vec<DueReview>> {
-    let due = repo.due_reviews(language, limit).await?;
+async fn review_local(repo: &SqliteRepository, tag: &str, limit: i64) -> Result<Vec<DueReview>> {
+    let due = repo.due_reviews(tag, limit).await?;
     for item in &due {
         print_due(item);
         let grade = prompt_grade()?;
@@ -210,14 +295,14 @@ async fn review_local(
 async fn review_http(
     api: &str,
     token: Option<&str>,
-    language: &str,
+    tag: &str,
     limit: i64,
 ) -> Result<Vec<DueReview>> {
     let client = reqwest::Client::new();
     let due: Vec<DueReview> = bearer(
         client
             .get(format!("{}/reviews/due", api.trim_end_matches('/')))
-            .query(&[("language", language), ("limit", &limit.to_string())]),
+            .query(&[("tag", tag), ("limit", &limit.to_string())]),
         token,
     )
     .send()
@@ -336,13 +421,13 @@ async fn add_word_http(
     api: &str,
     token: Option<&str>,
     word: &str,
-    language: &str,
+    tag: &str,
 ) -> Result<AddWordResult> {
     let result = bearer(
         reqwest::Client::new().post(format!("{}/words/", api.trim_end_matches('/'))),
         token,
     )
-    .json(&serde_json::json!({ "word": word, "language": language }))
+    .json(&serde_json::json!({ "word": word, "tag": tag }))
     .send()
     .await?
     .error_for_status()?
@@ -406,7 +491,10 @@ fn config_command(command: ConfigCommand) -> Result<()> {
 
 impl InitConfigArgs {
     fn has_values(&self) -> bool {
-        self.api_key.is_some() || self.base_url.is_some() || self.model.is_some()
+        self.api_key.is_some()
+            || self.base_url.is_some()
+            || self.model.is_some()
+            || self.target_language.is_some()
     }
 }
 
@@ -429,6 +517,9 @@ fn init_config_from_args(args: InitConfigArgs) -> Result<AppConfig> {
         model: args
             .model
             .unwrap_or_else(|| non_empty_or(existing_llm.model, defaults.model)),
+        target_language: args.target_language.unwrap_or_else(|| {
+            non_empty_or(existing_llm.target_language, defaults.target_language)
+        }),
     });
     Ok(cfg)
 }
@@ -471,9 +562,16 @@ fn init_config(force: bool, server_process: bool) -> Result<AppConfig> {
     println!("Press Enter to accept the default shown in brackets.");
     println!();
 
-    if cfg.mode.is_none() || force || (server_process && !matches!(cfg.mode, Some(Mode::Server))) {
-        let default_mode = if server_process { "server" } else { "local" };
-        let mode = prompt("Storage mode (local/server)", Some(default_mode))?;
+    if server_process {
+        cfg.server = Some(cfg.server.clone().unwrap_or_default());
+        if !has_complete_llm_config(&cfg) {
+            cfg.llm = Some(prompt_llm(cfg.llm.as_ref())?);
+        }
+        return Ok(cfg);
+    }
+
+    if cfg.mode.is_none() || force {
+        let mode = prompt("Storage mode (local/server)", Some("local"))?;
         cfg.mode = Some(if mode.trim().eq_ignore_ascii_case("server") {
             Mode::Server
         } else {
@@ -500,7 +598,7 @@ fn init_config(force: bool, server_process: bool) -> Result<AppConfig> {
                     .as_ref()
                     .and_then(|v| v.auth_token.clone()),
             });
-            if server_process || force {
+            if force {
                 cfg.server = Some(ServerConfig {
                     bind: prompt(
                         "server bind",
@@ -538,24 +636,28 @@ fn prompt_llm(existing: Option<&LlmConfig>) -> Result<LlmConfig> {
             "Model name",
             existing.map(|v| v.model.as_str()).or(Some("gpt-5.5")),
         )?,
+        target_language: prompt(
+            "Translation target language",
+            existing
+                .map(|v| v.target_language.as_str())
+                .or(Some("Chinese")),
+        )?,
     })
 }
 
 fn has_required_config(cfg: &AppConfig, server_process: bool) -> bool {
+    if server_process {
+        return cfg
+            .server
+            .as_ref()
+            .is_some_and(|v| !v.bind.is_empty() && !v.db_path.is_empty())
+            && has_complete_llm_config(cfg);
+    }
+
     match cfg.mode {
         Some(Mode::Local) => {
             cfg.local.as_ref().is_some_and(|v| !v.db_path.is_empty())
-                && cfg.llm.as_ref().is_some_and(|v| {
-                    !v.api_key.is_empty() && !v.base_url.is_empty() && !v.model.is_empty()
-                })
-        }
-        Some(Mode::Server) if server_process => {
-            cfg.server
-                .as_ref()
-                .is_some_and(|v| !v.bind.is_empty() && !v.db_path.is_empty())
-                && cfg.llm.as_ref().is_some_and(|v| {
-                    !v.api_key.is_empty() && !v.base_url.is_empty() && !v.model.is_empty()
-                })
+                && has_complete_llm_config(cfg)
         }
         Some(Mode::Server) => cfg
             .client_server
@@ -563,6 +665,15 @@ fn has_required_config(cfg: &AppConfig, server_process: bool) -> bool {
             .is_some_and(|v| !v.api_base_url.is_empty()),
         None => false,
     }
+}
+
+fn has_complete_llm_config(cfg: &AppConfig) -> bool {
+    cfg.llm.as_ref().is_some_and(|v| {
+        !v.api_key.trim().is_empty()
+            && !v.base_url.trim().is_empty()
+            && !v.model.trim().is_empty()
+            && !v.target_language.trim().is_empty()
+    })
 }
 
 fn prompt(label: &str, default: Option<&str>) -> Result<String> {

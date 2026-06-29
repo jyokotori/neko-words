@@ -10,14 +10,14 @@ pub async fn add_word<R, E>(
     repo: &R,
     enricher: &E,
     raw_word: &str,
-    language: &str,
+    tag: &str,
 ) -> Result<AddWordResult>
 where
     R: WordRepository,
     E: WordEnricher,
 {
     let input_word = normalize_word(raw_word);
-    if let Some(existing) = repo.find_word(&input_word, language).await? {
+    if let Some(existing) = repo.find_word(&input_word, tag).await? {
         let word = repo.reset_review_for_word(&existing.id).await?;
         return Ok(AddWordResult {
             word,
@@ -25,9 +25,9 @@ where
         });
     }
 
-    let enriched = enricher.enrich_word(&input_word, language).await?;
+    let enriched = enricher.enrich_word(&input_word).await?;
     let base_word = normalize_word(&enriched.word);
-    if let Some(existing) = repo.find_word(&base_word, language).await? {
+    if let Some(existing) = repo.find_word(&base_word, tag).await? {
         let word = repo.reset_review_for_word(&existing.id).await?;
         return Ok(AddWordResult {
             word,
@@ -36,12 +36,7 @@ where
     }
 
     let inserted = repo
-        .insert_word_with_review(
-            &base_word,
-            language,
-            &enriched.translation,
-            &enriched.examples,
-        )
+        .insert_word_with_review(&base_word, tag, &enriched.translation, &enriched.examples)
         .await?;
     Ok(AddWordResult {
         word: inserted,
@@ -73,7 +68,7 @@ mod tests {
 
     #[async_trait]
     impl WordEnricher for FakeEnricher {
-        async fn enrich_word(&self, word: &str, _language: &str) -> Result<EnrichedWord> {
+        async fn enrich_word(&self, word: &str) -> Result<EnrichedWord> {
             let lemma = if word == "children" { "child" } else { word };
             Ok(EnrichedWord {
                 word: lemma.to_string(),

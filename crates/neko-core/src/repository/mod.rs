@@ -11,16 +11,16 @@ pub use sqlite::SqliteRepository;
 #[async_trait]
 pub trait WordRepository: Send + Sync {
     async fn migrate(&self) -> Result<()>;
-    async fn find_word(&self, word: &str, language: &str) -> Result<Option<Word>>;
+    async fn find_word(&self, word: &str, tag: &str) -> Result<Option<Word>>;
     async fn insert_word_with_review(
         &self,
         word: &str,
-        language: &str,
+        tag: &str,
         translation: &str,
         examples: &[Example],
     ) -> Result<Word>;
     async fn reset_review_for_word(&self, word_id: &str) -> Result<Word>;
-    async fn due_reviews(&self, language: &str, limit: i64) -> Result<Vec<DueReview>>;
+    async fn due_reviews(&self, tag: &str, limit: i64) -> Result<Vec<DueReview>>;
     async fn log_review(&self, word_id: &str, grade: Grade) -> Result<Review>;
     async fn undo_review(&self, word_id: &str) -> Result<Grade>;
     /// Dump all words and reviews into the schema-agnostic [`ExportData`] format.

@@ -14,7 +14,7 @@ pub struct EnrichedWord {
 
 #[async_trait]
 pub trait WordEnricher: Send + Sync {
-    async fn enrich_word(&self, word: &str, language: &str) -> Result<EnrichedWord>;
+    async fn enrich_word(&self, word: &str) -> Result<EnrichedWord>;
 }
 
 #[derive(Clone)]
@@ -34,11 +34,13 @@ impl OpenAiCompatibleEnricher {
 
 #[async_trait]
 impl WordEnricher for OpenAiCompatibleEnricher {
-    async fn enrich_word(&self, word: &str, language: &str) -> Result<EnrichedWord> {
+    async fn enrich_word(&self, word: &str) -> Result<EnrichedWord> {
+        let target_language = self.config.target_language.trim();
         let prompt = format!(
-            r#"You are a vocabulary assistant. Analyze the {language} word "{word}".
+            r#"You are a vocabulary assistant. Analyze the word or phrase "{word}".
 
 Rules for word forms:
+- Detect the source language yourself.
 - If the input is a conjugated verb or plural noun, set "word" to the base form (lemma).
 - For IRREGULAR forms only, append the conjugation pattern after translation.
 - For REGULAR forms, do not mention any rule.
@@ -46,15 +48,15 @@ Rules for word forms:
 Return a valid JSON object:
 {{
   "word": "base form",
-  "translation": "/IPA/ Chinese translation",
+  "translation": "/IPA/ {target_language} translation",
   "examples": [
-    {{"sentence": "Example in {language}", "translation": "Chinese translation"}},
-    {{"sentence": "Example in {language}", "translation": "Chinese translation"}}
+    {{"sentence": "Example in the source language", "translation": "{target_language} translation"}},
+    {{"sentence": "Example in the source language", "translation": "{target_language} translation"}}
   ]
 }}
 
 Requirements:
-- Include IPA phonetic transcription at the start of translation.
+- Include IPA phonetic transcription at the start of translation when it is useful for the source language.
 - Provide at least 2 examples, preferably related to daily life or programming/software engineering.
 - Keep translation concise."#
         );

@@ -56,16 +56,16 @@ where
 #[derive(Deserialize)]
 struct WordInput {
     word: String,
-    #[serde(default = "default_language")]
-    language: String,
+    #[serde(default = "default_tag")]
+    tag: String,
 }
 
 #[derive(Deserialize)]
 struct DueQuery {
     #[serde(default = "default_limit")]
     limit: i64,
-    #[serde(default = "default_language")]
-    language: String,
+    #[serde(default = "default_tag")]
+    tag: String,
 }
 
 #[derive(Deserialize)]
@@ -87,8 +87,14 @@ pub async fn run(cfg: AppConfig) -> Result<()> {
     let db_url = cfg.server_db_url()?;
     let server = cfg.server.context("missing [server] config")?;
     let llm = cfg.llm.context("missing [llm] config")?;
-    if llm.api_key.is_empty() || llm.base_url.is_empty() || llm.model.is_empty() {
-        anyhow::bail!("server requires llm.api_key, llm.base_url, and llm.model");
+    if llm.api_key.is_empty()
+        || llm.base_url.is_empty()
+        || llm.model.is_empty()
+        || llm.target_language.is_empty()
+    {
+        anyhow::bail!(
+            "server requires llm.api_key, llm.base_url, llm.model, and llm.target_language"
+        );
     }
     let repo = SqliteRepository::connect(&db_url).await?;
     repo.migrate().await?;
@@ -161,7 +167,7 @@ async fn add_word(
     Json(input): Json<WordInput>,
 ) -> Result<Json<AddWordResult>, ApiError> {
     Ok(Json(
-        service::add_word(&state.repo, &state.llm, &input.word, &input.language).await?,
+        service::add_word(&state.repo, &state.llm, &input.word, &input.tag).await?,
     ))
 }
 
@@ -169,9 +175,7 @@ async fn due_reviews(
     State(state): State<AppState>,
     Query(query): Query<DueQuery>,
 ) -> Result<Json<Vec<DueReview>>, ApiError> {
-    Ok(Json(
-        state.repo.due_reviews(&query.language, query.limit).await?,
-    ))
+    Ok(Json(state.repo.due_reviews(&query.tag, query.limit).await?))
 }
 
 async fn log_review(
@@ -209,8 +213,8 @@ async fn import(
     })))
 }
 
-fn default_language() -> String {
-    "en".to_string()
+fn default_tag() -> String {
+    "default".to_string()
 }
 
 fn default_limit() -> i64 {

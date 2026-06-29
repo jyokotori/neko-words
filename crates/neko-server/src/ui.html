@@ -63,7 +63,8 @@
     }
 
     button,
-    input {
+    input,
+    select {
       font: inherit;
     }
 
@@ -116,7 +117,8 @@
       flex-wrap: wrap;
     }
 
-    input {
+    input,
+    select {
       width: 100%;
       min-height: 42px;
       border: 1px solid var(--line);
@@ -124,6 +126,11 @@
       padding: 0 12px;
       background: var(--panel);
       color: var(--text);
+    }
+
+    input.invalid {
+      border-color: var(--danger);
+      outline: 2px solid color-mix(in srgb, var(--danger) 18%, transparent);
     }
 
     label {
@@ -150,6 +157,43 @@
 
     .status.ok {
       color: var(--ok);
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: minmax(160px, 220px) minmax(170px, 220px) minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .readonly-field {
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: color-mix(in srgb, var(--panel) 82%, var(--bg));
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .hint {
+      margin-top: 6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .hint.error,
+    .auth-alert {
+      color: var(--danger);
+    }
+
+    .auth-alert {
+      border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line));
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--danger) 7%, var(--panel));
+      padding: 10px 12px;
+      margin-top: 12px;
+      font-size: 14px;
     }
 
     .word {
@@ -215,12 +259,18 @@
       }
 
       .tabs,
-      .grade-grid {
+      .grade-grid,
+      .settings-grid {
         grid-template-columns: 1fr 1fr;
       }
 
       .tabs {
         display: grid;
+      }
+
+      .settings-grid {
+        display: grid;
+        grid-template-columns: 1fr;
       }
 
       .word {
@@ -246,6 +296,27 @@
       </nav>
     </header>
 
+    <section class="panel">
+      <div class="settings-grid">
+        <div>
+          <label for="tag-input">Tag</label>
+          <input id="tag-input" value="default" autocomplete="off">
+          <div class="hint">A label for grouping words. It does not affect translation.</div>
+        </div>
+        <div>
+          <label>Translation target</label>
+          <div class="readonly-field">Chinese</div>
+          <div class="hint">Configured by llm.target_language.</div>
+        </div>
+        <div>
+          <label for="token-input">Access token</label>
+          <input id="token-input" type="password" autocomplete="off" placeholder="Paste Web UI auth token">
+          <div id="token-status" class="hint">Only needed when the server printed a Web UI auth token.</div>
+        </div>
+      </div>
+      <div id="auth-alert" class="auth-alert hidden" role="alert"></div>
+    </section>
+
     <section id="add-panel" class="panel">
       <h2>Add word</h2>
       <form id="add-form">
@@ -253,16 +324,6 @@
         <div class="row">
           <input id="word-input" name="word" autocomplete="off" autofocus placeholder="hello">
           <button id="add-button" class="primary" type="submit">Add</button>
-        </div>
-        <div class="row wrap" style="margin-top: 10px;">
-          <div style="min-width: 130px; flex: 0 0 130px;">
-            <label for="language-input">Language</label>
-            <input id="language-input" value="en" autocomplete="off">
-          </div>
-          <div style="min-width: 220px; flex: 1;">
-            <label for="token-input">Auth token, optional</label>
-            <input id="token-input" type="password" autocomplete="off" placeholder="Only if configured on server">
-          </div>
         </div>
       </form>
       <div id="add-status" class="status"></div>
@@ -303,8 +364,10 @@
       reviewPanel: document.querySelector("#review-panel"),
       addForm: document.querySelector("#add-form"),
       wordInput: document.querySelector("#word-input"),
-      languageInput: document.querySelector("#language-input"),
+      tagInput: document.querySelector("#tag-input"),
       tokenInput: document.querySelector("#token-input"),
+      tokenStatus: document.querySelector("#token-status"),
+      authAlert: document.querySelector("#auth-alert"),
       addButton: document.querySelector("#add-button"),
       addStatus: document.querySelector("#add-status"),
       recent: document.querySelector("#recent"),
@@ -327,8 +390,14 @@
     let lastReviewedWordId = null;
 
     els.tokenInput.value = localStorage.getItem("nekoWordsToken") || "";
-    els.tokenInput.addEventListener("change", () => {
-      localStorage.setItem("nekoWordsToken", els.tokenInput.value.trim());
+    updateTokenStatus();
+    els.tokenInput.addEventListener("input", () => {
+      const token = els.tokenInput.value.trim();
+      if (token) localStorage.setItem("nekoWordsToken", token);
+      else localStorage.removeItem("nekoWordsToken");
+      els.tokenInput.classList.remove("invalid");
+      els.authAlert.classList.add("hidden");
+      updateTokenStatus();
     });
 
     function headers() {
@@ -341,6 +410,31 @@
     function setStatus(el, message, kind = "") {
       el.textContent = message;
       el.className = `status ${kind}`;
+    }
+
+    function updateTokenStatus() {
+      if (els.tokenInput.value.trim()) {
+        els.tokenStatus.textContent = "Token saved in this browser.";
+        els.tokenStatus.className = "hint";
+      } else {
+        els.tokenStatus.textContent = "Only needed when the server printed a Web UI auth token.";
+        els.tokenStatus.className = "hint";
+      }
+    }
+
+    function reportError(el, error) {
+      if (error.status === 401) showAuthRequired();
+      setStatus(el, error.message, "error");
+    }
+
+    function showAuthRequired() {
+      const message = "Access token required or invalid. Paste the Web UI auth token printed by the server.";
+      els.authAlert.textContent = message;
+      els.authAlert.classList.remove("hidden");
+      els.tokenInput.classList.add("invalid");
+      els.tokenStatus.textContent = "Paste the token, then retry the action.";
+      els.tokenStatus.className = "hint error";
+      els.tokenInput.focus();
     }
 
     function showTab(name) {
@@ -358,7 +452,7 @@
     els.addForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const word = els.wordInput.value.trim();
-      const language = els.languageInput.value.trim() || "en";
+      const tag = els.tagInput.value.trim() || "default";
       if (!word) return;
       els.addButton.disabled = true;
       setStatus(els.addStatus, "Adding...");
@@ -366,7 +460,7 @@
         const response = await fetch(`${apiBase}/words/`, {
           method: "POST",
           headers: headers(),
-          body: JSON.stringify({ word, language })
+          body: JSON.stringify({ word, tag })
         });
         const data = await readJson(response);
         renderRecent(data);
@@ -374,7 +468,7 @@
         els.wordInput.focus();
         setStatus(els.addStatus, data.duplicate ? "Already existed. Review schedule was reset." : "Added.", "ok");
       } catch (error) {
-        setStatus(els.addStatus, error.message, "error");
+        reportError(els.addStatus, error);
       } finally {
         els.addButton.disabled = false;
       }
@@ -395,11 +489,11 @@
     els.loadReview.addEventListener("click", loadDue);
 
     async function loadDue() {
-      const language = encodeURIComponent(els.languageInput.value.trim() || "en");
+      const tag = encodeURIComponent(els.tagInput.value.trim() || "default");
       setStatus(els.reviewStatus, "Loading...");
       els.reviewCard.classList.add("hidden");
       try {
-        const response = await fetch(`${apiBase}/reviews/due?language=${language}&limit=50`, {
+        const response = await fetch(`${apiBase}/reviews/due?tag=${tag}&limit=50`, {
           headers: headers()
         });
         due = await readJson(response);
@@ -412,7 +506,7 @@
         setStatus(els.reviewStatus, "");
         showCurrent();
       } catch (error) {
-        setStatus(els.reviewStatus, error.message, "error");
+        reportError(els.reviewStatus, error);
       }
     }
 
@@ -446,7 +540,6 @@
     els.speakWord.addEventListener("click", () => {
       if (!current || !window.speechSynthesis) return;
       const utterance = new SpeechSynthesisUtterance(current.word.word);
-      utterance.lang = current.word.language === "en" ? "en-US" : current.word.language;
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(utterance);
     });
@@ -472,7 +565,7 @@
         setStatus(els.reviewStatus, "");
         showCurrent();
       } catch (error) {
-        setStatus(els.reviewStatus, error.message, "error");
+        reportError(els.reviewStatus, error);
       }
     }
 
@@ -491,7 +584,7 @@
         setStatus(els.reviewStatus, "");
         showCurrent();
       } catch (error) {
-        setStatus(els.reviewStatus, error.message, "error");
+        reportError(els.reviewStatus, error);
       }
     }
 
@@ -516,7 +609,12 @@
     async function readJson(response) {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || `Request failed: ${response.status}`);
+        const message = response.status === 401
+          ? "Access token required or invalid."
+          : data.detail || `Request failed: ${response.status}`;
+        const error = new Error(message);
+        error.status = response.status;
+        throw error;
       }
       return data;
     }

@@ -10,9 +10,9 @@ Neko Words 是一个本地优先的单词本工具。核心目标是保持简单
 
 用户可以通过本地 `neko-words` CLI 添加单词和复习。
 
-- `neko-words add <word> --tag en`: 添加单词。
-- `neko-words add --tag en`: 进入交互式添加。
-- `neko-words review --tag en`: 在终端中复习。
+- `neko-words add <word> --tag default`: 添加单词。
+- `neko-words add --tag default`: 进入交互式添加。
+- `neko-words review --tag default`: 在终端中复习。
 - 当配置为 `mode = "server"` 时，CLI 通过 server 的 API 端口工作。
 - 当配置为 `mode = "local"` 时，CLI 直接读写本地 SQLite。
 
@@ -41,12 +41,13 @@ http://127.0.0.1:8002/
 
 ### 添加单词
 
-- 默认语言为 `en`。
+- 默认标签为 `default`。标签只用于分类和筛选复习，不影响翻译目标。
 - 添加时调用 OpenAI-compatible LLM 生成结构化信息：
   - 单词原文。
-  - 中文释义。
-  - 多条例句及中文翻译。
-- 重复添加同一个语言下的同一个单词时，不新增重复词条，而是重置复习计划。
+  - 按 `[llm].target_language` 生成的释义，默认中文。
+  - 多条例句及按 `[llm].target_language` 生成的例句翻译。
+- LLM 自动识别输入单词或短语的源语言，用户不需要提供源语言。
+- 重复添加同一个标签下的同一个单词时，不新增重复词条，而是重置复习计划。
 
 ### 复习
 
@@ -65,8 +66,8 @@ http://127.0.0.1:8002/
 
 server 在 `/api/v1` 下提供 API：
 
-- `POST /api/v1/words/`
-- `GET /api/v1/reviews/due`
+- `POST /api/v1/words/`，请求体包含 `word` 和 `tag`。
+- `GET /api/v1/reviews/due?tag=default&limit=50`
 - `POST /api/v1/reviews/{word_id}/log`
 - `POST /api/v1/reviews/{word_id}/undo`
 - `GET /api/v1/export`
@@ -79,6 +80,7 @@ server 在 `/api/v1` 下提供 API：
 - 运行配置来自 `~/.neko-words/config.toml`。
 - 正常本地流程不依赖 `.env` 或 `NEKO_*` 环境变量。
 - API keys 配置在 `[llm]` 中。
+- 翻译目标语言是系统配置，保存在 `[llm].target_language`；单词标签不影响翻译目标。
 
 ## 5. 非功能需求
 
