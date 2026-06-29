@@ -13,6 +13,7 @@
 - First-run CLI prompts should be written for normal users, not implementation details.
 - Keep CLI prompts in English unless the user explicitly asks for another language.
 - API keys are required when configuring LLM access. Base URL and model should have sensible defaults.
+- For release tagging and Homebrew auto-update verification, follow `docs/release.md`.
 
 ## Validation
 
