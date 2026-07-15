@@ -13,6 +13,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
+console.workspace = true
 neko-core = { path = "../neko-core" }
 neko-server = { path = "../neko-server" }
 reqwest.workspace = true

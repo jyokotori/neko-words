@@ -84,14 +84,26 @@ Limit the number of review items:
 neko-words review --tag en --limit 20
 ```
 
-When the CLI asks for a grade, enter one of:
+`--limit` is the maximum number of currently due words loaded for this run. It does not change review scheduling or a daily quota.
+
+In an interactive terminal, grade with one key; do not press Enter:
 
 ```text
-again
-hard
-good
-easy
+1 = again
+2 = hard
+3 = good
+4 = easy
 ```
+
+Press Enter for `good`. Press `q`, Escape, or Ctrl+C to stop without changing the remaining cards.
+
+Keep line-based input when requested:
+
+```bash
+neko-words review --tag en --line
+```
+
+Line mode accepts `1`, `2`, `3`, `4`, `again`, `hard`, `good`, or `easy`, followed by Enter. Non-interactive stdin automatically uses line mode.
 
 ## Config
 
@@ -154,6 +166,8 @@ Start the server:
 ```bash
 neko-words server
 ```
+
+The Web UI saves the most recently entered Tag in the browser and restores it on later visits.
 
 Switch back to local mode:
 

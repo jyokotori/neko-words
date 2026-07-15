@@ -301,7 +301,7 @@
         <div>
           <label for="tag-input">Tag</label>
           <input id="tag-input" value="default" autocomplete="off">
-          <div class="hint">A label for grouping words. It does not affect translation.</div>
+          <div class="hint">Saved in this browser. It does not affect translation.</div>
         </div>
         <div>
           <label>Translation target</label>
@@ -389,6 +389,13 @@
     let current = null;
     let lastReviewedWordId = null;
 
+    els.tagInput.value = localStorage.getItem("nekoWordsTag") || "default";
+    els.tagInput.addEventListener("input", () => {
+      const tag = els.tagInput.value.trim();
+      if (tag) localStorage.setItem("nekoWordsTag", tag);
+      else localStorage.removeItem("nekoWordsTag");
+    });
+
     els.tokenInput.value = localStorage.getItem("nekoWordsToken") || "";
     updateTokenStatus();
     els.tokenInput.addEventListener("input", () => {
@@ -452,7 +459,7 @@
     els.addForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const word = els.wordInput.value.trim();
-      const tag = els.tagInput.value.trim() || "default";
+      const tag = currentTag();
       if (!word) return;
       els.addButton.disabled = true;
       setStatus(els.addStatus, "Adding...");
@@ -489,7 +496,7 @@
     els.loadReview.addEventListener("click", loadDue);
 
     async function loadDue() {
-      const tag = encodeURIComponent(els.tagInput.value.trim() || "default");
+      const tag = encodeURIComponent(currentTag());
       setStatus(els.reviewStatus, "Loading...");
       els.reviewCard.classList.add("hidden");
       try {
@@ -508,6 +515,13 @@
       } catch (error) {
         reportError(els.reviewStatus, error);
       }
+    }
+
+    function currentTag() {
+      const tag = els.tagInput.value.trim() || "default";
+      els.tagInput.value = tag;
+      localStorage.setItem("nekoWordsTag", tag);
+      return tag;
     }
 
     function showCurrent() {

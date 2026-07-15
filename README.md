@@ -73,6 +73,11 @@ cargo run -p neko-cli -- export --out backup.json
 cargo run -p neko-cli -- import backup.json
 ```
 
+Interactive reviews use immediate single-key grading: `1` = again, `2` = hard,
+`3` = good, and `4` = easy. Press Enter for good or `q` to stop. Use
+`review --line` to keep line-based input that requires Enter; non-interactive
+stdin automatically uses line mode.
+
 The installed binary name is `neko-words`.
 
 `--tag` is a label for grouping and filtering words. It does not tell the LLM what source language the word is. The LLM detects the source language itself and writes definitions/example translations in `[llm].target_language`.

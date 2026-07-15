@@ -1,10 +1,11 @@
 use std::{
-    io::{self, Write},
+    io::{self, IsTerminal, Write},
     net::SocketAddr,
 };
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use console::{Key, Term};
 use neko_core::{
     config::{AppConfig, ClientServerConfig, LlmConfig, Mode, ServerConfig, config_path},
     llm::OpenAiCompatibleEnricher,
@@ -65,6 +66,9 @@ struct ReviewArgs {
     tag: String,
     #[arg(long, default_value_t = 50)]
     limit: i64,
+    /// Use line input instead of immediate single-key grading
+    #[arg(long)]
+    line: bool,
 }
 
 #[derive(Args)]
@@ -257,10 +261,11 @@ async fn add(args: AddArgs) -> Result<()> {
 
 async fn review(args: ReviewArgs) -> Result<()> {
     let cfg = ensure_config(false)?;
+    let single_key = !args.line && io::stdin().is_terminal() && io::stdout().is_terminal();
     let due = match cfg.mode.clone().context("missing mode")? {
         Mode::Local => {
             let repo = local_repo(&cfg).await?;
-            review_local(&repo, &args.tag, args.limit).await?
+            review_local(&repo, &args.tag, args.limit, single_key).await?
         }
         Mode::Server => {
             let client_server = cfg
@@ -271,6 +276,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
                 client_server.auth_token.as_deref(),
                 &args.tag,
                 args.limit,
+                single_key,
             )
             .await?
         }
@@ -282,11 +288,19 @@ async fn review(args: ReviewArgs) -> Result<()> {
     Ok(())
 }
 
-async fn review_local(repo: &SqliteRepository, tag: &str, limit: i64) -> Result<Vec<DueReview>> {
+async fn review_local(
+    repo: &SqliteRepository,
+    tag: &str,
+    limit: i64,
+    single_key: bool,
+) -> Result<Vec<DueReview>> {
     let due = repo.due_reviews(tag, limit).await?;
     for item in &due {
         print_due(item);
-        let grade = prompt_grade()?;
+        let Some(grade) = prompt_grade(single_key)? else {
+            println!("Review stopped.");
+            break;
+        };
         service::log_review(repo, &item.word.id, grade).await?;
     }
     Ok(due)
@@ -297,6 +311,7 @@ async fn review_http(
     token: Option<&str>,
     tag: &str,
     limit: i64,
+    single_key: bool,
 ) -> Result<Vec<DueReview>> {
     let client = reqwest::Client::new();
     let due: Vec<DueReview> = bearer(
@@ -312,7 +327,10 @@ async fn review_http(
     .await?;
     for item in &due {
         print_due(item);
-        let grade = prompt_grade()?;
+        let Some(grade) = prompt_grade(single_key)? else {
+            println!("Review stopped.");
+            break;
+        };
         bearer(
             client.post(format!(
                 "{}/reviews/{}/log",
@@ -717,13 +735,76 @@ fn prompt_required(label: &str, default: Option<&str>) -> Result<String> {
     }
 }
 
-fn prompt_grade() -> Result<Grade> {
+#[derive(Debug, PartialEq, Eq)]
+enum ReviewAction {
+    Grade(Grade),
+    Quit,
+}
+
+fn prompt_grade(single_key: bool) -> Result<Option<Grade>> {
+    if single_key {
+        return prompt_grade_single_key();
+    }
+
     loop {
-        let input = prompt("grade [again/hard/good/easy]", Some("good"))?;
+        let input = prompt("grade [1=again/2=hard/3=good/4=easy/q=quit]", Some("3"))?;
+        if matches!(input.to_ascii_lowercase().as_str(), "q" | "quit") {
+            return Ok(None);
+        }
         match input.parse() {
-            Ok(grade) => return Ok(grade),
+            Ok(grade) => return Ok(Some(grade)),
             Err(error) => println!("{error}"),
         }
+    }
+}
+
+fn prompt_grade_single_key() -> Result<Option<Grade>> {
+    print!("grade [1=again/2=hard/3=good/4=easy, Enter=good, q=quit]: ");
+    io::stdout().flush()?;
+    let term = Term::stdout();
+
+    loop {
+        if let Some(action) = review_action_from_key(term.read_key()?) {
+            return match action {
+                ReviewAction::Grade(grade) => {
+                    println!("{} ({})", grade_key(grade), grade_name(grade));
+                    Ok(Some(grade))
+                }
+                ReviewAction::Quit => {
+                    println!("q");
+                    Ok(None)
+                }
+            };
+        }
+    }
+}
+
+fn review_action_from_key(key: Key) -> Option<ReviewAction> {
+    match key {
+        Key::Char('1') => Some(ReviewAction::Grade(Grade::Again)),
+        Key::Char('2') => Some(ReviewAction::Grade(Grade::Hard)),
+        Key::Char('3') | Key::Enter => Some(ReviewAction::Grade(Grade::Good)),
+        Key::Char('4') => Some(ReviewAction::Grade(Grade::Easy)),
+        Key::Char('q' | 'Q') | Key::Escape | Key::CtrlC => Some(ReviewAction::Quit),
+        _ => None,
+    }
+}
+
+fn grade_name(grade: Grade) -> &'static str {
+    match grade {
+        Grade::Again => "again",
+        Grade::Hard => "hard",
+        Grade::Good => "good",
+        Grade::Easy => "easy",
+    }
+}
+
+fn grade_key(grade: Grade) -> char {
+    match grade {
+        Grade::Again => '1',
+        Grade::Hard => '2',
+        Grade::Good => '3',
+        Grade::Easy => '4',
     }
 }
 
@@ -769,4 +850,45 @@ fn set_toml_key(value: &mut toml::Value, key: &str, new_value: toml::Value) -> R
             .or_insert_with(|| toml::Value::Table(Default::default()));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ReviewAction, review_action_from_key};
+    use console::Key;
+    use neko_core::models::Grade;
+
+    #[test]
+    fn review_keys_map_to_grades_without_enter() {
+        assert_eq!(
+            review_action_from_key(Key::Char('1')),
+            Some(ReviewAction::Grade(Grade::Again))
+        );
+        assert_eq!(
+            review_action_from_key(Key::Char('2')),
+            Some(ReviewAction::Grade(Grade::Hard))
+        );
+        assert_eq!(
+            review_action_from_key(Key::Char('3')),
+            Some(ReviewAction::Grade(Grade::Good))
+        );
+        assert_eq!(
+            review_action_from_key(Key::Char('4')),
+            Some(ReviewAction::Grade(Grade::Easy))
+        );
+    }
+
+    #[test]
+    fn review_keys_keep_default_and_quit_shortcuts() {
+        assert_eq!(
+            review_action_from_key(Key::Enter),
+            Some(ReviewAction::Grade(Grade::Good))
+        );
+        assert_eq!(
+            review_action_from_key(Key::Char('q')),
+            Some(ReviewAction::Quit)
+        );
+        assert_eq!(review_action_from_key(Key::CtrlC), Some(ReviewAction::Quit));
+        assert_eq!(review_action_from_key(Key::ArrowLeft), None);
+    }
 }

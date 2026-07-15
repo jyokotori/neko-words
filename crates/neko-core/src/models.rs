@@ -71,10 +71,10 @@ impl std::str::FromStr for Grade {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.to_ascii_lowercase().as_str() {
-            "again" => Ok(Self::Again),
-            "hard" => Ok(Self::Hard),
-            "good" => Ok(Self::Good),
-            "easy" => Ok(Self::Easy),
+            "1" | "again" => Ok(Self::Again),
+            "2" | "hard" => Ok(Self::Hard),
+            "3" | "good" => Ok(Self::Good),
+            "4" | "easy" => Ok(Self::Easy),
             other => anyhow::bail!("unknown review grade: {other}"),
         }
     }
@@ -88,5 +88,18 @@ impl Grade {
             Self::Good => 4,
             Self::Easy => 5,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Grade;
+
+    #[test]
+    fn grade_accepts_numeric_shortcuts() {
+        assert_eq!("1".parse::<Grade>().unwrap(), Grade::Again);
+        assert_eq!("2".parse::<Grade>().unwrap(), Grade::Hard);
+        assert_eq!("3".parse::<Grade>().unwrap(), Grade::Good);
+        assert_eq!("4".parse::<Grade>().unwrap(), Grade::Easy);
     }
 }
