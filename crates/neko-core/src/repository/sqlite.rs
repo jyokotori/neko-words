@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::str::FromStr;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -25,7 +26,8 @@ impl SqliteRepository {
     pub async fn connect(database_url: &str) -> Result<Self> {
         let options = SqliteConnectOptions::from_str(database_url)
             .with_context(|| format!("invalid sqlite url: {database_url}"))?
-            .create_if_missing(true);
+            .create_if_missing(true)
+            .busy_timeout(Duration::from_secs(30));
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(options)
@@ -104,14 +106,18 @@ impl WordRepository for SqliteRepository {
         tag: &str,
         translation: &str,
         examples: &[Example],
-    ) -> Result<Word> {
+    ) -> Result<Option<Word>> {
         let id = Uuid::new_v4().to_string();
         let created_at = Utc::now();
         let examples_json = serde_json::to_string(examples)?;
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query(
-            "INSERT INTO words (id, word, tag, translation, examples, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        let insert = sqlx::query(
+            r#"
+            INSERT INTO words (id, word, tag, translation, examples, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(tag, word) DO NOTHING
+            "#,
         )
         .bind(&id)
         .bind(word)
@@ -122,6 +128,11 @@ impl WordRepository for SqliteRepository {
         .execute(&mut *tx)
         .await?;
 
+        if insert.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(None);
+        }
+
         let review = initial_review(id.clone());
         upsert_review_query(&review).execute(&mut *tx).await?;
         tx.commit().await?;
@@ -129,6 +140,7 @@ impl WordRepository for SqliteRepository {
         self.find_word(word, tag)
             .await?
             .context("inserted word was not found")
+            .map(Some)
     }
 
     async fn reset_review_for_word(&self, word_id: &str) -> Result<Word> {
@@ -341,11 +353,33 @@ mod tests {
                 }],
             )
             .await
+            .unwrap()
             .unwrap();
 
         repo.log_review(&word.id, Grade::Good).await.unwrap();
         let undone = repo.undo_review(&word.id).await.unwrap();
         assert_eq!(undone, Grade::Good);
+    }
+
+    #[tokio::test]
+    async fn concurrent_duplicate_insert_is_reported_without_an_error() {
+        let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
+        repo.migrate().await.unwrap();
+        let examples = [Example {
+            sentence: "test sentence".to_string(),
+            translation: "测试句子".to_string(),
+        }];
+
+        let first = repo.insert_word_with_review("test", "en", "/x/ 测试", &examples);
+        let second = repo.insert_word_with_review("test", "en", "/x/ 测试", &examples);
+        let (first, second) = tokio::join!(first, second);
+        let first = first.unwrap();
+        let second = second.unwrap();
+
+        assert_ne!(first.is_some(), second.is_some());
+        let data = repo.export_all().await.unwrap();
+        assert_eq!(data.words.len(), 1);
+        assert_eq!(data.reviews.len(), 1);
     }
 
     #[tokio::test]
@@ -363,6 +397,7 @@ mod tests {
                 }],
             )
             .await
+            .unwrap()
             .unwrap();
         let dump = source.export_all().await.unwrap();
         assert_eq!(dump.words.len(), 1);
@@ -383,6 +418,7 @@ mod tests {
         let word = source
             .insert_word_with_review("beta", "en", "/b/ 乙", &[])
             .await
+            .unwrap()
             .unwrap();
 
         // Words-only payload (mirrors the legacy backup that lacked reviews).

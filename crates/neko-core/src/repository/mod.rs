@@ -12,13 +12,15 @@ pub use sqlite::SqliteRepository;
 pub trait WordRepository: Send + Sync {
     async fn migrate(&self) -> Result<()>;
     async fn find_word(&self, word: &str, tag: &str) -> Result<Option<Word>>;
+    /// Atomically inserts a word and its initial review, returning `None` when
+    /// another writer already inserted the same `(tag, word)` pair.
     async fn insert_word_with_review(
         &self,
         word: &str,
         tag: &str,
         translation: &str,
         examples: &[Example],
-    ) -> Result<Word>;
+    ) -> Result<Option<Word>>;
     async fn reset_review_for_word(&self, word_id: &str) -> Result<Word>;
     async fn due_reviews(&self, tag: &str, limit: i64) -> Result<Vec<DueReview>>;
     async fn log_review(&self, word_id: &str, grade: Grade) -> Result<Review>;

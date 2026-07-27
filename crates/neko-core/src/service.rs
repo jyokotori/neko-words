@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::{
     llm::WordEnricher,
@@ -38,9 +38,21 @@ where
     let inserted = repo
         .insert_word_with_review(&base_word, tag, &enriched.translation, &enriched.examples)
         .await?;
+    if let Some(word) = inserted {
+        return Ok(AddWordResult {
+            word,
+            duplicate: false,
+        });
+    }
+
+    let existing = repo
+        .find_word(&base_word, tag)
+        .await?
+        .context("word conflicted during insert but was not found")?;
+    let word = repo.reset_review_for_word(&existing.id).await?;
     Ok(AddWordResult {
-        word: inserted,
-        duplicate: false,
+        word,
+        duplicate: true,
     })
 }
 
