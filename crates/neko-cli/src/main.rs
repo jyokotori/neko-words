@@ -54,16 +54,16 @@ struct ImportArgs {
 #[derive(Args)]
 struct AddArgs {
     word: Option<String>,
-    #[arg(long, default_value = "default")]
-    tag: String,
+    #[arg(long)]
+    tag: Option<String>,
     #[arg(long)]
     batch: bool,
 }
 
 #[derive(Args)]
 struct ReviewArgs {
-    #[arg(long, default_value = "default")]
-    tag: String,
+    #[arg(long)]
+    tag: Option<String>,
     #[arg(long, default_value_t = 50)]
     limit: i64,
     /// Use line input instead of immediate single-key grading
@@ -219,6 +219,7 @@ fn generate_auth_token() -> String {
 
 async fn add(args: AddArgs) -> Result<()> {
     let cfg = ensure_config(false)?;
+    let tag = selected_tag(args.tag.as_deref(), &cfg);
     match cfg.mode.clone().context("missing mode")? {
         Mode::Local => {
             let repo = local_repo(&cfg).await?;
@@ -229,10 +230,10 @@ async fn add(args: AddArgs) -> Result<()> {
                     if word.trim().is_empty() {
                         break;
                     }
-                    print_add_result(service::add_word(&repo, &llm, &word, &args.tag).await?);
+                    print_add_result(service::add_word(&repo, &llm, &word, &tag).await?);
                 }
             } else if let Some(word) = args.word {
-                print_add_result(service::add_word(&repo, &llm, &word, &args.tag).await?);
+                print_add_result(service::add_word(&repo, &llm, &word, &tag).await?);
             }
         }
         Mode::Server => {
@@ -247,12 +248,10 @@ async fn add(args: AddArgs) -> Result<()> {
                     if word.trim().is_empty() {
                         break;
                     }
-                    print_add_result(
-                        add_word_http(&api, token.as_deref(), &word, &args.tag).await?,
-                    );
+                    print_add_result(add_word_http(&api, token.as_deref(), &word, &tag).await?);
                 }
             } else if let Some(word) = args.word {
-                print_add_result(add_word_http(&api, token.as_deref(), &word, &args.tag).await?);
+                print_add_result(add_word_http(&api, token.as_deref(), &word, &tag).await?);
             }
         }
     }
@@ -261,11 +260,12 @@ async fn add(args: AddArgs) -> Result<()> {
 
 async fn review(args: ReviewArgs) -> Result<()> {
     let cfg = ensure_config(false)?;
+    let tag = selected_tag(args.tag.as_deref(), &cfg);
     let single_key = !args.line && io::stdin().is_terminal() && io::stdout().is_terminal();
     let due = match cfg.mode.clone().context("missing mode")? {
         Mode::Local => {
             let repo = local_repo(&cfg).await?;
-            review_local(&repo, &args.tag, args.limit, single_key).await?
+            review_local(&repo, &tag, args.limit, single_key).await?
         }
         Mode::Server => {
             let client_server = cfg
@@ -274,7 +274,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
             review_http(
                 &client_server.api_base_url,
                 client_server.auth_token.as_deref(),
-                &args.tag,
+                &tag,
                 args.limit,
                 single_key,
             )
@@ -286,6 +286,18 @@ async fn review(args: ReviewArgs) -> Result<()> {
         println!("No words are due for review.");
     }
     Ok(())
+}
+
+fn selected_tag(explicit: Option<&str>, cfg: &AppConfig) -> String {
+    explicit
+        .or_else(|| {
+            cfg.cli
+                .as_ref()
+                .map(|cli| cli.default_tag.as_str())
+                .filter(|tag| !tag.trim().is_empty())
+        })
+        .unwrap_or("default")
+        .to_string()
 }
 
 async fn review_local(
@@ -854,8 +866,9 @@ fn set_toml_key(value: &mut toml::Value, key: &str, new_value: toml::Value) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::{ReviewAction, review_action_from_key};
+    use super::{ReviewAction, review_action_from_key, selected_tag};
     use console::Key;
+    use neko_core::config::{AppConfig, CliConfig};
     use neko_core::models::Grade;
 
     #[test]
@@ -890,5 +903,31 @@ mod tests {
         );
         assert_eq!(review_action_from_key(Key::CtrlC), Some(ReviewAction::Quit));
         assert_eq!(review_action_from_key(Key::ArrowLeft), None);
+    }
+
+    #[test]
+    fn configured_tag_is_used_unless_explicitly_overridden() {
+        let cfg = AppConfig {
+            cli: Some(CliConfig {
+                default_tag: "en".to_string(),
+            }),
+            ..AppConfig::default()
+        };
+
+        assert_eq!(selected_tag(None, &cfg), "en");
+        assert_eq!(selected_tag(Some("jp"), &cfg), "jp");
+    }
+
+    #[test]
+    fn missing_or_empty_configured_tag_uses_legacy_default() {
+        assert_eq!(selected_tag(None, &AppConfig::default()), "default");
+
+        let cfg = AppConfig {
+            cli: Some(CliConfig {
+                default_tag: String::new(),
+            }),
+            ..AppConfig::default()
+        };
+        assert_eq!(selected_tag(None, &cfg), "default");
     }
 }

@@ -68,6 +68,7 @@ cargo run -p neko-cli -- mode local
 cargo run -p neko-cli -- mode server
 cargo run -p neko-cli -- config path
 cargo run -p neko-cli -- config get
+cargo run -p neko-cli -- config set cli.default_tag en
 cargo run -p neko-cli -- config init
 cargo run -p neko-cli -- export --out backup.json
 cargo run -p neko-cli -- import backup.json
@@ -81,6 +82,15 @@ stdin automatically uses line mode.
 The installed binary name is `neko-words`.
 
 `--tag` is a label for grouping and filtering words. It does not tell the LLM what source language the word is. The LLM detects the source language itself and writes definitions/example translations in `[llm].target_language`.
+
+Set the default tag used by `add` and `review` when `--tag` is omitted:
+
+```bash
+neko-words config set cli.default_tag en
+```
+
+An explicit `--tag` overrides this setting. Existing configurations without
+`cli.default_tag` continue to use `default`.
 
 ## Server
 

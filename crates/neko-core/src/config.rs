@@ -16,10 +16,17 @@ pub enum Mode {
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct AppConfig {
     pub mode: Option<Mode>,
+    pub cli: Option<CliConfig>,
     pub local: Option<LocalConfig>,
     pub client_server: Option<ClientServerConfig>,
     pub server: Option<ServerConfig>,
     pub llm: Option<LlmConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CliConfig {
+    #[serde(default = "default_tag")]
+    pub default_tag: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -55,6 +62,14 @@ impl Default for LocalConfig {
     fn default() -> Self {
         Self {
             db_path: default_db_path(),
+        }
+    }
+}
+
+impl Default for CliConfig {
+    fn default() -> Self {
+        Self {
+            default_tag: default_tag(),
         }
     }
 }
@@ -150,6 +165,10 @@ fn sqlite_url_from_path(value: &str) -> Result<String> {
 
 fn default_db_path() -> String {
     "~/.neko-words/neko-words.sqlite3".to_string()
+}
+
+fn default_tag() -> String {
+    "default".to_string()
 }
 
 fn home_dir() -> Result<PathBuf> {
