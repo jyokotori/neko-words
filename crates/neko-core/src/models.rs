@@ -43,9 +43,12 @@ pub struct DueReview {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct AddWordResult {
-    pub word: Word,
-    pub duplicate: bool,
+#[serde(tag = "status", rename_all = "lowercase")]
+pub enum AddWordResult {
+    Added { word: Word },
+    Duplicate { word: Word },
+    Invalid { input: String, reason: String },
+    Skipped { input: String, reason: String },
 }
 
 /// Schema-agnostic intermediate format for manual migration between backends

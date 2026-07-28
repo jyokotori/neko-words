@@ -470,10 +470,20 @@
           body: JSON.stringify({ word, tag })
         });
         const data = await readJson(response);
-        renderRecent(data);
-        els.wordInput.value = "";
+        if (data.status === "invalid") {
+          setStatus(els.addStatus, `Invalid: ${data.reason}`, "error");
+        } else if (data.status === "skipped") {
+          setStatus(els.addStatus, `Skipped: ${data.reason}`);
+        } else {
+          renderRecent(data);
+          els.wordInput.value = "";
+          setStatus(
+            els.addStatus,
+            data.status === "duplicate" ? "Already existed. Review schedule was reset." : "Added.",
+            "ok"
+          );
+        }
         els.wordInput.focus();
-        setStatus(els.addStatus, data.duplicate ? "Already existed. Review schedule was reset." : "Added.", "ok");
       } catch (error) {
         reportError(els.addStatus, error);
       } finally {
@@ -486,7 +496,7 @@
       item.className = "recent-item";
       const word = result.word;
       item.innerHTML = `
-        <strong>${escapeHtml(word.word)}${result.duplicate ? " (reset)" : ""}</strong>
+        <strong>${escapeHtml(word.word)}${result.status === "duplicate" ? " (reset)" : ""}</strong>
         <div>${escapeHtml(word.translation || "")}</div>
         <div class="small">${escapeHtml(word.examples?.[0]?.sentence || "")}</div>
       `;

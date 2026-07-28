@@ -1,5 +1,5 @@
 use std::{
-    io::{self, IsTerminal, Write},
+    io::{self, BufRead, IsTerminal, Write},
     net::SocketAddr,
 };
 
@@ -56,6 +56,7 @@ struct AddArgs {
     word: Option<String>,
     #[arg(long)]
     tag: Option<String>,
+    /// Add words line by line; redirected input trims whitespace and skips separators
     #[arg(long)]
     batch: bool,
 }
@@ -220,11 +221,20 @@ fn generate_auth_token() -> String {
 async fn add(args: AddArgs) -> Result<()> {
     let cfg = ensure_config(false)?;
     let tag = selected_tag(args.tag.as_deref(), &cfg);
+    let reads_redirected_input = (args.batch || args.word.is_none()) && !io::stdin().is_terminal();
+    let batch_words = reads_redirected_input
+        .then(|| read_batch_words(io::stdin().lock()))
+        .transpose()?;
+
     match cfg.mode.clone().context("missing mode")? {
         Mode::Local => {
             let repo = local_repo(&cfg).await?;
             let llm = OpenAiCompatibleEnricher::new(cfg.llm.context("missing [llm] config")?);
-            if args.batch || args.word.is_none() {
+            if let Some(words) = batch_words.as_ref() {
+                for word in words {
+                    print_add_result(service::add_word(&repo, &llm, word, &tag).await?);
+                }
+            } else if args.batch || args.word.is_none() {
                 loop {
                     let word = prompt("Word to add (press Enter to finish)", None)?;
                     if word.trim().is_empty() {
@@ -242,7 +252,11 @@ async fn add(args: AddArgs) -> Result<()> {
                 .context("missing [client_server] config")?;
             let api = client_server.api_base_url;
             let token = client_server.auth_token;
-            if args.batch || args.word.is_none() {
+            if let Some(words) = batch_words.as_ref() {
+                for word in words {
+                    print_add_result(add_word_http(&api, token.as_deref(), word, &tag).await?);
+                }
+            } else if args.batch || args.word.is_none() {
                 loop {
                     let word = prompt("Word to add (press Enter to finish)", None)?;
                     if word.trim().is_empty() {
@@ -256,6 +270,33 @@ async fn add(args: AddArgs) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn read_batch_words(reader: impl BufRead) -> Result<Vec<String>> {
+    reader
+        .lines()
+        .map(|line| Ok(preprocess_batch_line(&line?).map(str::to_string)))
+        .filter_map(|result| match result {
+            Ok(Some(word)) => Some(Ok(word)),
+            Ok(None) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect()
+}
+
+fn preprocess_batch_line(line: &str) -> Option<&str> {
+    let value = line.trim();
+    if value.is_empty() || is_markdown_rule(value) {
+        return None;
+    }
+    Some(value)
+}
+
+fn is_markdown_rule(value: &str) -> bool {
+    value.len() >= 3
+        && value
+            .chars()
+            .all(|character| matches!(character, '-' | '*' | '_'))
 }
 
 async fn review(args: ReviewArgs) -> Result<()> {
@@ -821,15 +862,20 @@ fn grade_key(grade: Grade) -> char {
 }
 
 fn print_add_result(result: AddWordResult) {
-    let status = if result.duplicate {
-        "duplicate"
-    } else {
-        "added"
-    };
-    println!(
-        "{}: {} - {}",
-        status, result.word.word, result.word.translation
-    );
+    match result {
+        AddWordResult::Added { word } => {
+            println!("added: {} - {}", word.word, word.translation);
+        }
+        AddWordResult::Duplicate { word } => {
+            println!("duplicate: {} - {}", word.word, word.translation);
+        }
+        AddWordResult::Invalid { input, reason } => {
+            println!("invalid: {input} - {reason}");
+        }
+        AddWordResult::Skipped { input, reason } => {
+            println!("skipped: {input} - {reason}");
+        }
+    }
 }
 
 fn print_due(item: &DueReview) {
@@ -866,10 +912,60 @@ fn set_toml_key(value: &mut toml::Value, key: &str, new_value: toml::Value) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::{ReviewAction, review_action_from_key, selected_tag};
+    use super::{
+        ReviewAction, preprocess_batch_line, read_batch_words, review_action_from_key, selected_tag,
+    };
     use console::Key;
     use neko_core::config::{AppConfig, CliConfig};
     use neko_core::models::Grade;
+    use std::io::Cursor;
+
+    #[test]
+    fn redirected_batch_input_skips_blank_lines_without_stopping() {
+        let input = Cursor::new("apple\n\n  \nchildren\n");
+
+        assert_eq!(
+            read_batch_words(input).unwrap(),
+            vec!["apple".to_string(), "children".to_string()]
+        );
+    }
+
+    #[test]
+    fn batch_input_preserves_formatting_around_vocabulary() {
+        let input = Cursor::new(
+            "# New words\n- apple\n* `take off`\n1. went\n2) children\n- [ ] rust\n> quoted\n---\n",
+        );
+
+        assert_eq!(
+            read_batch_words(input).unwrap(),
+            vec![
+                "# New words",
+                "- apple",
+                "* `take off`",
+                "1. went",
+                "2) children",
+                "- [ ] rust",
+                "> quoted"
+            ]
+        );
+    }
+
+    #[test]
+    fn batch_input_leaves_prefixed_words_for_the_llm() {
+        assert_eq!(preprocess_batch_line("# New words"), Some("# New words"));
+        assert_eq!(preprocess_batch_line("## Verbs"), Some("## Verbs"));
+        assert_eq!(preprocess_batch_line("- apple"), Some("- apple"));
+        assert_eq!(preprocess_batch_line("```rust"), Some("```rust"));
+    }
+
+    #[test]
+    fn batch_input_preserves_words_with_meaningful_punctuation() {
+        assert_eq!(
+            preprocess_batch_line("state-of-the-art"),
+            Some("state-of-the-art")
+        );
+        assert_eq!(preprocess_batch_line("C++"), Some("C++"));
+    }
 
     #[test]
     fn review_keys_map_to_grades_without_enter() {
