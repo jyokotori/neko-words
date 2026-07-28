@@ -3,7 +3,6 @@
 .idea
 .vscode
 *.log
-new-word.md
 
 # Python
 __pycache__/
