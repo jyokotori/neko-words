@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use console::{Key, Term};
+use console::{Key, Term, style};
 use neko_core::{
     config::{AppConfig, ClientServerConfig, LlmConfig, Mode, ServerConfig, config_path},
     llm::OpenAiCompatibleEnricher,
@@ -349,7 +349,12 @@ async fn review_local(
 ) -> Result<Vec<DueReview>> {
     let due = repo.due_reviews(tag, limit).await?;
     for item in &due {
-        print_due(item);
+        print_due_prompt(item);
+        if !prompt_reveal(single_key)? {
+            println!("Review stopped.");
+            break;
+        }
+        print_due_answer(item);
         let Some(grade) = prompt_grade(single_key)? else {
             println!("Review stopped.");
             break;
@@ -379,7 +384,12 @@ async fn review_http(
     .json()
     .await?;
     for item in &due {
-        print_due(item);
+        print_due_prompt(item);
+        if !prompt_reveal(single_key)? {
+            println!("Review stopped.");
+            break;
+        }
+        print_due_answer(item);
         let Some(grade) = prompt_grade(single_key)? else {
             println!("Review stopped.");
             break;
@@ -794,6 +804,37 @@ enum ReviewAction {
     Quit,
 }
 
+fn prompt_reveal(single_key: bool) -> Result<bool> {
+    if single_key {
+        print!("Press Space to reveal the answer (q=quit): ");
+        io::stdout().flush()?;
+        let term = Term::stdout();
+
+        loop {
+            match term.read_key()? {
+                Key::Char(' ') | Key::Enter => {
+                    println!();
+                    return Ok(true);
+                }
+                Key::Char('q' | 'Q') | Key::Escape | Key::CtrlC => {
+                    println!("q");
+                    return Ok(false);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    loop {
+        let input = prompt("Press Enter to reveal the answer (q=quit)", None)?;
+        match input.to_ascii_lowercase().as_str() {
+            "" => return Ok(true),
+            "q" | "quit" => return Ok(false),
+            _ => println!("Press Enter to reveal the answer, or q to quit."),
+        }
+    }
+}
+
 fn prompt_grade(single_key: bool) -> Result<Option<Grade>> {
     if single_key {
         return prompt_grade_single_key();
@@ -878,11 +919,48 @@ fn print_add_result(result: AddWordResult) {
     }
 }
 
-fn print_due(item: &DueReview) {
-    println!("\n{} - {}", item.word.word, item.word.translation);
-    for example in &item.word.examples {
-        println!("  {} / {}", example.sentence, example.translation);
+fn print_due_prompt(item: &DueReview) {
+    let (pronunciation, _) = split_pronunciation(&item.word.translation);
+    let word = style(&item.word.word).color256(179).bold();
+    match pronunciation {
+        Some(pronunciation) => println!("\n{word} - {}", style(pronunciation).dim()),
+        None => println!("\n{word}"),
     }
+    for example in &item.word.examples {
+        println!("- {}", style(&example.sentence).color256(110));
+    }
+}
+
+fn print_due_answer(item: &DueReview) {
+    let (pronunciation, meaning) = split_pronunciation(&item.word.translation);
+    let word = style(&item.word.word).color256(179).bold();
+    let meaning = style(meaning).color256(108).bold();
+    match pronunciation {
+        Some(pronunciation) => {
+            println!("{word} - {} {meaning}", style(pronunciation).dim());
+        }
+        None => println!("{word} - {meaning}"),
+    }
+    for example in &item.word.examples {
+        println!(
+            "- {} / {}",
+            style(&example.sentence).color256(110),
+            style(&example.translation).color256(108)
+        );
+    }
+}
+
+fn split_pronunciation(translation: &str) -> (Option<&str>, &str) {
+    let trimmed = translation.trim();
+    if let Some(after_opening) = trimmed.strip_prefix('/')
+        && let Some(closing_offset) = after_opening.find('/')
+    {
+        let closing_index = closing_offset + 2;
+        let pronunciation = &trimmed[..closing_index];
+        let meaning = trimmed[closing_index..].trim();
+        return (Some(pronunciation), meaning);
+    }
+    (None, trimmed)
 }
 
 fn get_toml_key<'a>(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value> {
@@ -913,7 +991,8 @@ fn set_toml_key(value: &mut toml::Value, key: &str, new_value: toml::Value) -> R
 #[cfg(test)]
 mod tests {
     use super::{
-        ReviewAction, preprocess_batch_line, read_batch_words, review_action_from_key, selected_tag,
+        ReviewAction, preprocess_batch_line, read_batch_words, review_action_from_key,
+        selected_tag, split_pronunciation,
     };
     use console::Key;
     use neko_core::config::{AppConfig, CliConfig};
@@ -999,6 +1078,19 @@ mod tests {
         );
         assert_eq!(review_action_from_key(Key::CtrlC), Some(ReviewAction::Quit));
         assert_eq!(review_action_from_key(Key::ArrowLeft), None);
+    }
+
+    #[test]
+    fn review_hides_meaning_but_keeps_leading_pronunciation() {
+        assert_eq!(
+            split_pronunciation("/əkˈseləreɪt/ 加速；促进"),
+            (Some("/əkˈseləreɪt/"), "加速；促进")
+        );
+    }
+
+    #[test]
+    fn review_hides_the_whole_translation_when_pronunciation_is_missing() {
+        assert_eq!(split_pronunciation("加速；促进"), (None, "加速；促进"));
     }
 
     #[test]
