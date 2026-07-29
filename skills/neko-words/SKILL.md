@@ -86,7 +86,7 @@ neko-words review --tag en --limit 20
 
 `--limit` is the maximum number of currently due words loaded for this run. It does not change review scheduling or a daily quota.
 
-In an interactive terminal, grade with one key; do not press Enter:
+In an interactive terminal, press Space to reveal the translation and example translations. Then grade with one key; do not press Enter:
 
 ```text
 1 = again
@@ -95,7 +95,7 @@ In an interactive terminal, grade with one key; do not press Enter:
 4 = easy
 ```
 
-Press Enter for `good`. Press `q`, Escape, or Ctrl+C to stop without changing the remaining cards.
+Press Enter for `good` after revealing the answer. Press `q`, Escape, or Ctrl+C to stop without changing the remaining cards.
 
 Keep line-based input when requested:
 
@@ -103,7 +103,7 @@ Keep line-based input when requested:
 neko-words review --tag en --line
 ```
 
-Line mode accepts `1`, `2`, `3`, `4`, `again`, `hard`, `good`, or `easy`, followed by Enter. Non-interactive stdin automatically uses line mode.
+In line mode, press Enter once to reveal the answer. Then enter `1`, `2`, `3`, `4`, `again`, `hard`, `good`, or `easy`, followed by Enter. Non-interactive stdin automatically uses line mode.
 
 ## Config
 
